@@ -4,10 +4,10 @@
 // ===== DATA LAYER =====
 const API_BASE = '/api';
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-const PERIODS = [1, 2, 3, 4, 5, 6, 7, 8];
+const PERIODS = [1, 2, 3, 4, 5, 6, 7];
 const PERIOD_TIMES = [
     '9:00 - 9:45', '9:45 - 10:30', '10:30 - 11:15', '11:15 - 12:00',
-    '12:45 - 1:30', '1:30 - 2:15', '2:15 - 3:00', '3:00 - 3:45'
+    '12:45 - 1:30', '1:30 - 2:15', '2:15 - 3:00'
 ];
 
 const ALL_SUBJECTS_8_9 = [
@@ -173,7 +173,7 @@ function renderDashboard() {
             <div class="stat-card">
                 <div class="stat-icon blue"><i class="fas fa-calendar-day"></i></div>
                 <div class="stat-info">
-                    <h3>5 × 8</h3>
+                    <h3>5 × 7</h3>
                     <p>Days × Periods</p>
                 </div>
             </div>
@@ -445,8 +445,8 @@ function renderSubjectEntries(cls, classNum) {
             </table>
         </div>
         <div style="margin-top:12px;padding:10px;background:var(--bg);border-radius:var(--radius);font-size:13px;color:var(--text-light);">
-            <strong>Total:</strong> <span id="totalPeriodsCount">0</span> / 40 periods
-            <small style="display:block;margin-top:4px;">Must equal 40 (5 days × 8 periods per day)</small>
+            <strong>Total:</strong> <span id="totalPeriodsCount">0</span> / 35 periods
+            <small style="display:block;margin-top:4px;">Must equal 35 (5 days × 7 periods per day)</small>
         </div>
         <script>
             setTimeout(() => {
@@ -457,7 +457,7 @@ function renderSubjectEntries(cls, classNum) {
                     const el = document.getElementById('totalPeriodsCount');
                     if (el) {
                         el.textContent = total;
-                        el.style.color = total === 40 ? 'var(--success)' : (total > 40 ? 'var(--danger)' : 'var(--text)');
+                        el.style.color = total === 35 ? 'var(--success)' : (total > 35 ? 'var(--danger)' : 'var(--text)');
                     }
                 };
                 inputs.forEach(inp => inp.addEventListener('input', updateTotal));
@@ -532,8 +532,8 @@ function saveClass(editIdx) {
 
     // Validate total periods
     const totalPeriods = subjects.reduce((s, sub) => s + sub.periodsPerWeek, 0);
-    if (totalPeriods !== 40) {
-        showToast(`Total periods must be 40 (5 days × 8 periods). Current: ${totalPeriods}`, 'warning');
+    if (totalPeriods !== 35) {
+        showToast(`Total periods must be 35 (5 days × 7 periods). Current: ${totalPeriods}`, 'warning');
         return;
     }
 
