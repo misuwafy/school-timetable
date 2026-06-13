@@ -351,16 +351,20 @@ async function bulkDeleteClasses() {
 
     let toDelete = data.classes;
     let desc = '';
+    let params = [];
 
     if (byClass && byBlock) {
         toDelete = toDelete.filter(c => c.name === byClass && c.block === byBlock);
         desc = `Class ${byClass} in ${byBlock}`;
+        params = [`className=${byClass}`, `block=${byBlock}`];
     } else if (byClass) {
         toDelete = toDelete.filter(c => c.name === byClass);
         desc = `all Class ${byClass} divisions`;
+        params = [`className=${byClass}`];
     } else if (byBlock) {
         toDelete = toDelete.filter(c => c.block === byBlock);
         desc = `all classes in ${byBlock}`;
+        params = [`block=${byBlock}`];
     }
 
     if (toDelete.length === 0) {
@@ -370,9 +374,7 @@ async function bulkDeleteClasses() {
 
     if (!confirm(`Delete ${toDelete.length} division(s) (${desc})?\n\nThis cannot be undone.`)) return;
 
-    for (const cls of toDelete) {
-        await apiDelete(`/classes/${cls.id}`);
-    }
+    await fetch(`${API_BASE}/classes?${params.join('&')}`, { method: 'DELETE' });
     await fetchData();
     showToast(`${toDelete.length} division(s) deleted`, 'success');
     renderPage('classes');
@@ -385,9 +387,7 @@ async function deleteAllClasses() {
     if (!confirm(`⚠️ Delete ALL ${data.classes.length} class divisions?\n\nThis cannot be undone!`)) return;
     if (!confirm(`Are you absolutely sure? This will remove ALL class data.`)) return;
 
-    for (const cls of data.classes) {
-        await apiDelete(`/classes/${cls.id}`);
-    }
+    await fetch(`${API_BASE}/classes`, { method: 'DELETE' });
     await fetchData();
     showToast('All classes deleted', 'success');
     renderPage('classes');

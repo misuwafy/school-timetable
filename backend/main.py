@@ -157,6 +157,18 @@ def delete_class(cid: int, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
+@app.delete("/api/classes")
+def delete_classes_bulk(db: Session = Depends(get_db), className: str = None, block: str = None):
+    query = db.query(SchoolClass)
+    if className:
+        query = query.filter(SchoolClass.name == className)
+    if block:
+        query = query.filter(SchoolClass.block == block)
+    count = query.delete(synchronize_session=False)
+    db.commit()
+    return {"ok": True, "deleted": count}
+
+
 # ===== Timetable =====
 @app.get("/api/timetable")
 def get_timetable(db: Session = Depends(get_db)):
