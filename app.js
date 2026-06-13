@@ -488,12 +488,6 @@ function saveClass(editIdx) {
     const classType = document.getElementById('classType').value;
     const classTeacher = document.getElementById('classTeacher').value;
 
-    // Check if class already exists (when adding new)
-    if (editIdx === null && data.classes.find(c => c.name === className)) {
-        showToast('Class ' + className + ' already exists!', 'error');
-        return;
-    }
-
     // Parse divisions from text input
     const divisions = divisionsInput
         .split(',')
@@ -510,6 +504,17 @@ function saveClass(editIdx) {
     if (uniqueDivisions.length !== divisions.length) {
         showToast('Duplicate division names found. Please use unique names.', 'error');
         return;
+    }
+
+    // Check if class-division already exists (when adding new)
+    if (editIdx === null) {
+        const existing = data.classes.filter(c => c.name === className);
+        const existingDivs = existing.flatMap(c => c.divisions);
+        const conflicts = uniqueDivisions.filter(d => existingDivs.includes(d));
+        if (conflicts.length > 0) {
+            showToast(`Class ${className} division(s) ${conflicts.join(', ')} already exist!`, 'error');
+            return;
+        }
     }
 
     // Collect subjects with teacher assignments
@@ -1935,6 +1940,37 @@ async function handleExcelUpload(event) {
             if (valid.length === 0) { showToast('No valid entries to upload', 'error'); return; }
             classes.length = 0;
             classes.push(...valid);
+        }
+
+        // Check for duplicates against existing data
+        const existingData = getData();
+        const existingKeys = existingData.classes.map(c => `${c.name}-${c.divisions[0]}`);
+        const duplicates = classes.filter(cls => existingKeys.includes(`${cls.name}-${cls.divisions[0]}`));
+        const newClasses = classes.filter(cls => !existingKeys.includes(`${cls.name}-${cls.divisions[0]}`));
+
+        if (duplicates.length > 0) {
+            const dupNames = duplicates.map(d => `${d.name}-${d.divisions[0]}`).join(', ');
+            const action = confirm(
+                `⚠️ Duplicate entries found!\n\n` +
+                `Already exists: ${dupNames}\n\n` +
+                `Choose an option:\n` +
+                `• OK = Skip duplicates, upload only new (${newClasses.length} entries)\n` +
+                `• Cancel = Abort upload entirely`
+            );
+
+            if (!action) {
+                showToast('Upload cancelled', 'warning');
+                return;
+            }
+
+            if (newClasses.length === 0) {
+                showToast('All entries already exist. Nothing to upload.', 'warning');
+                return;
+            }
+
+            // Replace classes with only new ones
+            classes.length = 0;
+            classes.push(...newClasses);
         }
 
         // Save each class-division to API
