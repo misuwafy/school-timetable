@@ -1822,25 +1822,26 @@ async function handleExcelUpload(event) {
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
 
-        // Parse classes from rows (skip header rows)
+        // Parse: each division becomes its own class entry
         const classes = [];
-        let currentClass = null;
+        let currentDiv = null;
 
         for (let i = 0; i < rows.length; i++) {
             const row = rows[i];
             if (!row || row.length === 0) continue;
 
-            const [cls, divisions, block, type, classTeacher, subject, teacher, periods] = row;
+            const [cls, division, block, type, classTeacher, subject, teacher, periods] = row;
 
-            // Skip header row
+            // Skip header rows and separator rows
             if (cls === 'Class' || subject === 'Subject') continue;
+            if (String(cls).startsWith('---')) continue;
 
-            // New class starts when Column A has a value
-            if (cls && String(cls).trim()) {
-                if (currentClass) classes.push(currentClass);
-                currentClass = {
+            // New division starts when Column A (Class) AND Column B (Division) have values
+            if (cls && String(cls).trim() && division && String(division).trim()) {
+                if (currentDiv) classes.push(currentDiv);
+                currentDiv = {
                     name: String(cls).trim(),
-                    divisions: String(divisions).split(',').map(d => d.trim().toUpperCase()).filter(d => d),
+                    divisions: [String(division).trim().toUpperCase()],
                     block: String(block || '').trim(),
                     classType: String(type || '').trim(),
                     classTeacher: String(classTeacher || '').trim(),
@@ -1849,10 +1850,10 @@ async function handleExcelUpload(event) {
             }
 
             // Add subject if present
-            if (currentClass && subject && String(subject).trim()) {
+            if (currentDiv && subject && String(subject).trim()) {
                 const periodsNum = parseInt(periods) || 0;
                 if (periodsNum > 0) {
-                    currentClass.subjects.push({
+                    currentDiv.subjects.push({
                         name: String(subject).trim(),
                         teacher: String(teacher || '').trim(),
                         periodsPerWeek: periodsNum
@@ -1860,7 +1861,7 @@ async function handleExcelUpload(event) {
                 }
             }
         }
-        if (currentClass) classes.push(currentClass);
+        if (currentDiv) classes.push(currentDiv);
 
         if (classes.length === 0) {
             showToast('No valid class data found in the file', 'error');
@@ -1872,22 +1873,33 @@ async function handleExcelUpload(event) {
         classes.forEach(cls => {
             const total = cls.subjects.reduce((s, sub) => s + sub.periodsPerWeek, 0);
             if (total !== 35) {
-                errors.push(`Class ${cls.name}: total periods = ${total} (must be 35)`);
+                errors.push(`Class ${cls.name}-${cls.divisions[0]}: total = ${total} (must be 35)`);
             }
             cls.subjects.forEach(sub => {
                 if (!sub.teacher) {
-                    errors.push(`Class ${cls.name}: no teacher for ${sub.name}`);
+                    errors.push(`Class ${cls.name}-${cls.divisions[0]}: no teacher for ${sub.name}`);
                 }
             });
         });
 
         if (errors.length > 0) {
-            showToast(`Errors found: ${errors[0]}${errors.length > 1 ? ` (+${errors.length-1} more)` : ''}`, 'error');
+            const msg = errors.slice(0, 3).join('\n');
+            showToast(`Errors: ${errors[0]}`, 'error');
             console.log('All errors:', errors);
-            return;
+            if (!confirm(`Found ${errors.length} error(s):\n${msg}${errors.length > 3 ? '\n...' : ''}\n\nUpload anyway (skip invalid)?`)) {
+                return;
+            }
+            // Filter out invalid
+            const valid = classes.filter(cls => {
+                const total = cls.subjects.reduce((s, sub) => s + sub.periodsPerWeek, 0);
+                return total === 35 && cls.subjects.every(s => s.teacher);
+            });
+            if (valid.length === 0) { showToast('No valid entries to upload', 'error'); return; }
+            classes.length = 0;
+            classes.push(...valid);
         }
 
-        // Save each class to API
+        // Save each class-division to API
         let created = 0;
         for (const cls of classes) {
             await apiPost('/classes', cls);
@@ -1895,7 +1907,7 @@ async function handleExcelUpload(event) {
         }
 
         await fetchData();
-        showToast(`${created} class(es) created from Excel!`, 'success');
+        showToast(`${created} class-division(s) created from Excel!`, 'success');
         renderPage('classes');
 
     } catch (e) {
