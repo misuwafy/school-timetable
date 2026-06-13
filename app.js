@@ -2087,10 +2087,37 @@ async function handleExcelUpload(event) {
 
         // Save each class-division to API
         let created = 0;
+        const total = classes.length;
+
+        // Show progress overlay
+        const progressOverlay = document.createElement('div');
+        progressOverlay.id = 'uploadProgress';
+        progressOverlay.innerHTML = `
+            <div style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:3000;display:flex;align-items:center;justify-content:center;">
+                <div style="background:white;border-radius:12px;padding:32px 40px;min-width:400px;text-align:center;box-shadow:0 20px 40px rgba(0,0,0,0.2);">
+                    <i class="fas fa-file-excel" style="font-size:40px;color:var(--success);margin-bottom:16px;"></i>
+                    <h3 style="margin-bottom:8px;">Uploading Classes...</h3>
+                    <p id="uploadStatusText" style="color:var(--text-light);margin-bottom:16px;">0 / ${total} divisions</p>
+                    <div style="width:100%;height:10px;background:#e2e8f0;border-radius:5px;overflow:hidden;">
+                        <div id="uploadProgressBar" style="height:100%;background:var(--primary);border-radius:5px;transition:width 0.2s;width:0%;"></div>
+                    </div>
+                    <p id="uploadCurrentItem" style="font-size:12px;color:var(--text-light);margin-top:8px;"></p>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(progressOverlay);
+
         for (const cls of classes) {
             await apiPost('/classes', cls);
             created++;
+            const pct = Math.round((created / total) * 100);
+            document.getElementById('uploadProgressBar').style.width = pct + '%';
+            document.getElementById('uploadStatusText').textContent = `${created} / ${total} divisions`;
+            document.getElementById('uploadCurrentItem').textContent = `Class ${cls.name}-${cls.divisions[0]}`;
         }
+
+        // Remove progress overlay
+        document.getElementById('uploadProgress')?.remove();
 
         await fetchData();
         showToast(`${created} class-division(s) created from Excel!`, 'success');
