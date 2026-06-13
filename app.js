@@ -268,7 +268,11 @@ function renderClasses() {
         <div class="panel">
             <div class="panel-header">
                 <h2>Create New Class</h2>
-                <button class="btn btn-primary" onclick="showAddClassModal()"><i class="fas fa-plus"></i> Add Class</button>
+                <div style="display:flex;gap:8px;">
+                    <button class="btn btn-outline" onclick="document.getElementById('excelUpload').click()"><i class="fas fa-file-excel"></i> Upload Excel</button>
+                    <button class="btn btn-primary" onclick="showAddClassModal()"><i class="fas fa-plus"></i> Add Class</button>
+                </div>
+                <input type="file" id="excelUpload" style="display:none" accept=".xlsx,.xls" onchange="handleExcelUpload(event)">
             </div>
             <div class="panel-body">
                 ${data.classes.length === 0 ? `
@@ -1804,6 +1808,100 @@ function downloadCSV(csv, filename) {
     a.click();
     URL.revokeObjectURL(url);
     showToast('Exported successfully!', 'success');
+}
+
+// ===== EXCEL UPLOAD =====
+async function handleExcelUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    event.target.value = '';
+
+    try {
+        const data = await file.arrayBuffer();
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+        // Parse classes from rows (skip header rows)
+        const classes = [];
+        let currentClass = null;
+
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            if (!row || row.length === 0) continue;
+
+            const [cls, divisions, block, type, classTeacher, subject, teacher, periods] = row;
+
+            // Skip header row
+            if (cls === 'Class' || subject === 'Subject') continue;
+
+            // New class starts when Column A has a value
+            if (cls && String(cls).trim()) {
+                if (currentClass) classes.push(currentClass);
+                currentClass = {
+                    name: String(cls).trim(),
+                    divisions: String(divisions).split(',').map(d => d.trim().toUpperCase()).filter(d => d),
+                    block: String(block || '').trim(),
+                    classType: String(type || '').trim(),
+                    classTeacher: String(classTeacher || '').trim(),
+                    subjects: []
+                };
+            }
+
+            // Add subject if present
+            if (currentClass && subject && String(subject).trim()) {
+                const periodsNum = parseInt(periods) || 0;
+                if (periodsNum > 0) {
+                    currentClass.subjects.push({
+                        name: String(subject).trim(),
+                        teacher: String(teacher || '').trim(),
+                        periodsPerWeek: periodsNum
+                    });
+                }
+            }
+        }
+        if (currentClass) classes.push(currentClass);
+
+        if (classes.length === 0) {
+            showToast('No valid class data found in the file', 'error');
+            return;
+        }
+
+        // Validate
+        let errors = [];
+        classes.forEach(cls => {
+            const total = cls.subjects.reduce((s, sub) => s + sub.periodsPerWeek, 0);
+            if (total !== 35) {
+                errors.push(`Class ${cls.name}: total periods = ${total} (must be 35)`);
+            }
+            cls.subjects.forEach(sub => {
+                if (!sub.teacher) {
+                    errors.push(`Class ${cls.name}: no teacher for ${sub.name}`);
+                }
+            });
+        });
+
+        if (errors.length > 0) {
+            showToast(`Errors found: ${errors[0]}${errors.length > 1 ? ` (+${errors.length-1} more)` : ''}`, 'error');
+            console.log('All errors:', errors);
+            return;
+        }
+
+        // Save each class to API
+        let created = 0;
+        for (const cls of classes) {
+            await apiPost('/classes', cls);
+            created++;
+        }
+
+        await fetchData();
+        showToast(`${created} class(es) created from Excel!`, 'success');
+        renderPage('classes');
+
+    } catch (e) {
+        showToast('Error reading Excel file: ' + e.message, 'error');
+        console.error(e);
+    }
 }
 
 // ===== INIT =====
