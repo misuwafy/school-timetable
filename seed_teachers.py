@@ -25,14 +25,14 @@ teachers = [
 
 db = SessionLocal()
 
-# Clear existing teachers
-db.query(Teacher).delete()
-db.commit()
+# Only seed if no teachers exist
+existing = db.query(Teacher).count()
+if existing == 0:
+    for name in teachers:
+        db.add(Teacher(name=name.strip(), maxPeriodsPerDay=7, isBlockHead=False, headOfBlock=''))
+    db.commit()
+    print(f"✅ {len(teachers)} teachers seeded into database.")
+else:
+    print(f"ℹ️ Database already has {existing} teachers. Skipping seed.")
 
-# Add all teachers
-for name in teachers:
-    db.add(Teacher(name=name.strip(), maxPeriodsPerDay=7, isBlockHead=False, headOfBlock=''))
-
-db.commit()
-print(f"✅ {len(teachers)} teachers added to database.")
 db.close()
