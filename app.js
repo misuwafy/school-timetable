@@ -125,7 +125,8 @@ function renderPage(page) {
 // ===== DASHBOARD =====
 function renderDashboard() {
     const data = getData();
-    const totalDivisions = data.classes.reduce((sum, c) => sum + c.divisions.length, 0);
+    const uniqueClasses = [...new Set(data.classes.map(c => c.name))];
+    const totalDivisions = data.classes.length;
     const hasTimeTable = Object.keys(data.timetable).length > 0;
 
     return `
@@ -133,7 +134,7 @@ function renderDashboard() {
             <div class="stat-card">
                 <div class="stat-icon blue"><i class="fas fa-chalkboard"></i></div>
                 <div class="stat-info">
-                    <h3>${data.classes.length}</h3>
+                    <h3>${uniqueClasses.length}</h3>
                     <p>Classes</p>
                 </div>
             </div>
