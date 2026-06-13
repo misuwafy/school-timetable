@@ -359,6 +359,22 @@ function showAddClassModal(editIdx = null) {
                     </select>
                 </div>
                 <div class="form-group">
+                    <label>Type</label>
+                    <select class="form-control" id="classType">
+                        <option value="">Select Type</option>
+                        <option value="Arabic" ${cls && cls.classType === 'Arabic' ? 'selected' : ''}>Arabic</option>
+                        <option value="Malayalam" ${cls && cls.classType === 'Malayalam' ? 'selected' : ''}>Malayalam</option>
+                        <option value="Urdu/Sanskrit" ${cls && cls.classType === 'Urdu/Sanskrit' ? 'selected' : ''}>Urdu/Sanskrit</option>
+                        <option value="Sanskrit/Urdu/Arabic" ${cls && cls.classType === 'Sanskrit/Urdu/Arabic' ? 'selected' : ''}>Sanskrit/Urdu/Arabic</option>
+                        <option value="Malayalam/Arabic" ${cls && cls.classType === 'Malayalam/Arabic' ? 'selected' : ''}>Malayalam/Arabic</option>
+                        <option value="Sanskrit/Arabic/Urdu/Malayalam" ${cls && cls.classType === 'Sanskrit/Arabic/Urdu/Malayalam' ? 'selected' : ''}>Sanskrit/Arabic/Urdu/Malayalam</option>
+                        <option value="Sanskrit/Arabic" ${cls && cls.classType === 'Sanskrit/Arabic' ? 'selected' : ''}>Sanskrit/Arabic</option>
+                        <option value="Urdu/Arabic" ${cls && cls.classType === 'Urdu/Arabic' ? 'selected' : ''}>Urdu/Arabic</option>
+                        <option value="Sanskrit" ${cls && cls.classType === 'Sanskrit' ? 'selected' : ''}>Sanskrit</option>
+                        <option value="Urdu" ${cls && cls.classType === 'Urdu' ? 'selected' : ''}>Urdu</option>
+                    </select>
+                </div>
+                <div class="form-group">
                     <label>Class Teacher</label>
                     <select class="form-control" id="classTeacher">
                         <option value="">Select Class Teacher</option>
@@ -461,6 +477,7 @@ function saveClass(editIdx) {
     const className = document.getElementById('className').value;
     const divisionsInput = document.getElementById('classDivisions').value.trim();
     const block = document.getElementById('classBlock').value;
+    const classType = document.getElementById('classType').value;
     const classTeacher = document.getElementById('classTeacher').value;
 
     // Check if class already exists (when adding new)
@@ -530,7 +547,7 @@ function saveClass(editIdx) {
 
     const doSave = async () => {
         try {
-            const classData = { name: className, divisions: uniqueDivisions, block, classTeacher, subjects };
+            const classData = { name: className, divisions: uniqueDivisions, block, classType, classTeacher, subjects };
             if (editIdx !== null) {
                 await apiPut(`/classes/${data.classes[editIdx].id}`, classData);
             } else {
@@ -581,6 +598,7 @@ function viewClass(idx) {
             </div>
             <div class="modal-body">
                 <p><strong>Divisions:</strong> ${cls.divisions.join(', ')}</p>
+                <p><strong>Type:</strong> ${cls.classType || '-'}</p>
                 <p><strong>Block:</strong> ${cls.block || 'Not assigned'}</p>
                 <p><strong>Class Teacher:</strong> ${cls.classTeacher || 'Not assigned'}</p>
                 <br>

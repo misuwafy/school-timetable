@@ -25,6 +25,7 @@ class SchoolClass(Base):
     name = Column(String, nullable=False)
     divisions = Column(JSON, nullable=False)
     block = Column(String, default="")
+    classType = Column(String, default="")
     classTeacher = Column(String, default="")
     subjects = Column(JSON, nullable=False)
 

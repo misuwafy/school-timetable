@@ -40,6 +40,7 @@ class ClassSchema(BaseModel):
     name: Optional[str] = None
     divisions: Optional[list] = None
     block: Optional[str] = ""
+    classType: Optional[str] = ""
     classTeacher: Optional[str] = ""
     subjects: Optional[list] = None
 
@@ -123,13 +124,13 @@ def delete_block(bid: int, db: Session = Depends(get_db)):
 def get_classes(db: Session = Depends(get_db)):
     classes = db.query(SchoolClass).all()
     return [{"id": c.id, "name": c.name, "divisions": c.divisions, "block": c.block,
-             "classTeacher": c.classTeacher, "subjects": c.subjects} for c in classes]
+             "classType": c.classType, "classTeacher": c.classTeacher, "subjects": c.subjects} for c in classes]
 
 
 @app.post("/api/classes")
 def create_class(data: ClassSchema, db: Session = Depends(get_db)):
     c = SchoolClass(name=data.name, divisions=data.divisions, block=data.block,
-                    classTeacher=data.classTeacher, subjects=data.subjects)
+                    classType=data.classType, classTeacher=data.classTeacher, subjects=data.subjects)
     db.add(c)
     db.commit()
     db.refresh(c)
