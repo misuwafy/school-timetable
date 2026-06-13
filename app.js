@@ -1920,42 +1920,74 @@ async function handleExcelUpload(event) {
         const data = await file.arrayBuffer();
         const workbook = XLSX.read(data, { type: 'array' });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false });
 
         // Parse: each division becomes its own class entry
         const classes = [];
         let currentDiv = null;
+        let headerRow = -1;
 
-        for (let i = 0; i < rows.length; i++) {
+        // Find header row (contains "Class" and "Subject" or "Division")
+        for (let i = 0; i < Math.min(rows.length, 10); i++) {
             const row = rows[i];
-            if (!row || row.length === 0) continue;
+            if (!row) continue;
+            const rowStr = row.join(' ').toLowerCase();
+            if (rowStr.includes('class') && (rowStr.includes('subject') || rowStr.includes('division'))) {
+                headerRow = i;
+                break;
+            }
+        }
 
-            const [cls, division, block, type, classTeacher, subject, teacher, periods] = row;
+        const startRow = headerRow + 1;
+        console.log(`Excel: ${rows.length} rows, header at row ${headerRow}, parsing from row ${startRow}`);
 
-            // Skip header rows and separator rows
-            if (cls === 'Class' || subject === 'Subject') continue;
-            if (String(cls).startsWith('---')) continue;
+        for (let i = startRow; i < rows.length; i++) {
+            const row = rows[i];
+            if (!row || row.length < 6) continue;
+
+            // Read all columns, handle both string and number types
+            let cls = String(row[0] || '').trim();
+            let division = String(row[1] || '').trim();
+            let block = String(row[2] || '').trim();
+            let type = String(row[3] || '').trim();
+            let classTeacher = String(row[4] || '').trim();
+            let subject = String(row[5] || '').trim();
+            let teacher = String(row[6] || '').trim();
+            let periods = row[7];
+
+            // Clean up class value (might be "10.0" from Excel number)
+            if (cls) cls = cls.replace('.0', '');
+
+            // Skip title/instruction rows
+            if (cls.toLowerCase().includes('kkhms') || cls.toLowerCase().includes('each row')) continue;
+            if (cls.startsWith('---')) continue;
+            if (subject.toLowerCase() === 'subject') continue;
 
             // New division starts when Column A (Class) AND Column B (Division) have values
-            if (cls && String(cls).trim() && division && String(division).trim()) {
+            if (cls && division && /^(8|9|10)$/.test(cls)) {
                 if (currentDiv) classes.push(currentDiv);
                 currentDiv = {
-                    name: String(cls).trim(),
-                    divisions: [String(division).trim().toUpperCase()],
-                    block: String(block || '').trim(),
-                    classType: String(type || '').trim(),
-                    classTeacher: String(classTeacher || '').trim(),
+                    name: cls,
+                    divisions: [division.toUpperCase()],
+                    block: block,
+                    classType: type,
+                    classTeacher: classTeacher,
                     subjects: []
                 };
             }
 
             // Add subject if present
-            if (currentDiv && subject && String(subject).trim()) {
-                const periodsNum = parseInt(periods) || 0;
-                if (periodsNum > 0) {
+            if (currentDiv && subject) {
+                // Parse periods - handle various formats
+                let periodsNum = 0;
+                if (periods !== null && periods !== undefined && periods !== '') {
+                    periodsNum = parseInt(String(periods).replace('.0', '')) || 0;
+                }
+
+                if (periodsNum > 0 && subject.length > 0) {
                     currentDiv.subjects.push({
-                        name: String(subject).trim(),
-                        teacher: String(teacher || '').trim(),
+                        name: subject,
+                        teacher: teacher,
                         periodsPerWeek: periodsNum
                     });
                 }
@@ -1963,8 +1995,14 @@ async function handleExcelUpload(event) {
         }
         if (currentDiv) classes.push(currentDiv);
 
+        console.log(`Parsed ${classes.length} class-divisions from Excel`);
+        classes.forEach(c => {
+            const total = c.subjects.reduce((s, sub) => s + sub.periodsPerWeek, 0);
+            console.log(`  ${c.name}-${c.divisions[0]}: ${c.subjects.length} subjects, ${total} periods`);
+        });
+
         if (classes.length === 0) {
-            showToast('No valid class data found in the file', 'error');
+            showToast('No valid class data found in the file. Check console for details.', 'error');
             return;
         }
 
