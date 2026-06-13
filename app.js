@@ -264,11 +264,16 @@ function renderDashboard() {
 // ===== CLASS MANAGEMENT =====
 function renderClasses() {
     const data = getData();
+
+    // Get unique class names and blocks for bulk delete
+    const uniqueClasses = [...new Set(data.classes.map(c => c.name))].sort();
+    const uniqueBlocks = [...new Set(data.classes.map(c => c.block).filter(b => b))].sort();
+
     return `
         <div class="panel">
             <div class="panel-header">
-                <h2>Create New Class</h2>
-                <div style="display:flex;gap:8px;">
+                <h2>Classes</h2>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
                     <button class="btn btn-outline" onclick="document.getElementById('excelUpload').click()"><i class="fas fa-file-excel"></i> Upload Excel</button>
                     <button class="btn btn-primary" onclick="showAddClassModal()"><i class="fas fa-plus"></i> Add Class</button>
                 </div>
@@ -282,13 +287,27 @@ function renderClasses() {
                         <p>Create your first class to get started with the timetable.</p>
                     </div>
                 ` : `
+                    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
+                        <span style="font-weight:600;font-size:13px;color:var(--text-light);">Bulk Delete:</span>
+                        <select id="bulkDeleteClass" class="form-control" style="width:auto;padding:6px 12px;font-size:13px;">
+                            <option value="">By Class</option>
+                            ${uniqueClasses.map(c => `<option value="${c}">Class ${c}</option>`).join('')}
+                        </select>
+                        <select id="bulkDeleteBlock" class="form-control" style="width:auto;padding:6px 12px;font-size:13px;">
+                            <option value="">By Block</option>
+                            ${uniqueBlocks.map(b => `<option value="${b}">${b}</option>`).join('')}
+                        </select>
+                        <button class="btn btn-sm btn-danger" onclick="bulkDeleteClasses()"><i class="fas fa-trash"></i> Delete Selected</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteAllClasses()" style="margin-left:auto;"><i class="fas fa-trash-alt"></i> Delete All</button>
+                    </div>
                     <div class="table-container">
                         <table>
                             <thead>
                                 <tr>
                                     <th>Class</th>
-                                    <th>Divisions</th>
+                                    <th>Division</th>
                                     <th>Block</th>
+                                    <th>Type</th>
                                     <th>Subjects</th>
                                     <th>Actions</th>
                                 </tr>
@@ -298,10 +317,10 @@ function renderClasses() {
                                     <tr>
                                         <td><strong>Class ${c.name}</strong></td>
                                         <td>${c.divisions.map(d => `<span class="chip">${d}</span>`).join('')}</td>
-                                        <td><span class="badge badge-primary">${c.block || 'Not assigned'}</span></td>
+                                        <td><span class="badge badge-primary">${c.block || '-'}</span></td>
+                                        <td><span style="font-size:12px;">${c.classType || '-'}</span></td>
                                         <td>
-                                            ${c.subjects.slice(0, 3).map(s => `<span class="chip">${s.name}</span>`).join('')}
-                                            ${c.subjects.length > 3 ? `<span class="chip">+${c.subjects.length - 3} more</span>` : ''}
+                                            ${(c.subjects || []).filter(s => s.periodsPerWeek > 0).length} subjects
                                         </td>
                                         <td>
                                             <button class="btn btn-sm btn-outline" onclick="viewClass(${idx})"><i class="fas fa-eye"></i></button>
@@ -317,6 +336,60 @@ function renderClasses() {
             </div>
         </div>
     `;
+}
+
+async function bulkDeleteClasses() {
+    const data = getData();
+    const byClass = document.getElementById('bulkDeleteClass').value;
+    const byBlock = document.getElementById('bulkDeleteBlock').value;
+
+    if (!byClass && !byBlock) {
+        showToast('Please select a Class or Block to delete', 'warning');
+        return;
+    }
+
+    let toDelete = data.classes;
+    let desc = '';
+
+    if (byClass && byBlock) {
+        toDelete = toDelete.filter(c => c.name === byClass && c.block === byBlock);
+        desc = `Class ${byClass} in ${byBlock}`;
+    } else if (byClass) {
+        toDelete = toDelete.filter(c => c.name === byClass);
+        desc = `all Class ${byClass} divisions`;
+    } else if (byBlock) {
+        toDelete = toDelete.filter(c => c.block === byBlock);
+        desc = `all classes in ${byBlock}`;
+    }
+
+    if (toDelete.length === 0) {
+        showToast('No matching classes found', 'warning');
+        return;
+    }
+
+    if (!confirm(`Delete ${toDelete.length} division(s) (${desc})?\n\nThis cannot be undone.`)) return;
+
+    for (const cls of toDelete) {
+        await apiDelete(`/classes/${cls.id}`);
+    }
+    await fetchData();
+    showToast(`${toDelete.length} division(s) deleted`, 'success');
+    renderPage('classes');
+}
+
+async function deleteAllClasses() {
+    const data = getData();
+    if (data.classes.length === 0) return;
+
+    if (!confirm(`⚠️ Delete ALL ${data.classes.length} class divisions?\n\nThis cannot be undone!`)) return;
+    if (!confirm(`Are you absolutely sure? This will remove ALL class data.`)) return;
+
+    for (const cls of data.classes) {
+        await apiDelete(`/classes/${cls.id}`);
+    }
+    await fetchData();
+    showToast('All classes deleted', 'success');
+    renderPage('classes');
 }
 
 function showAddClassModal(editIdx = null) {
