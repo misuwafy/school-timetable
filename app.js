@@ -1,5 +1,5 @@
 // ===== School Timetable Management System =====
-// Data stored in backend API with SQLite database
+// Data stored in Python backend with SQLite
 
 // ===== DATA LAYER =====
 const API_BASE = '/api';
@@ -24,7 +24,7 @@ const ALL_SUBJECTS_10 = [
 // Special subjects with fixed 1 period/week for class 8 and 9
 const SPECIAL_SUBJECTS = ['PET', 'Music', 'Work Education', 'Art'];
 
-// Cache for API data
+// Cache
 let _cache = { classes: [], teachers: [], blocks: [], timetable: {} };
 
 async function fetchData() {
@@ -35,41 +35,18 @@ async function fetchData() {
             fetch(`${API_BASE}/classes`).then(r => r.json()),
             fetch(`${API_BASE}/timetable`).then(r => r.json())
         ]);
-        _cache = {
-            teachers: teachers.map(t => ({
-                id: t.id,
-                name: t.name,
-                subjects: [],
-                maxPeriodsPerDay: t.max_periods_per_day,
-                isBlockHead: t.is_block_head,
-                headOfBlock: t.head_of_block
-            })),
-            blocks: blocks.map(b => ({ id: b.id, name: b.name, description: b.description, head: b.head })),
-            classes: classes.map(c => ({
-                id: c.id,
-                name: c.name,
-                divisions: c.divisions,
-                block: c.block,
-                classTeacher: c.class_teacher,
-                subjects: c.subjects
-            })),
-            timetable: timetable || {}
-        };
+        _cache = { teachers, blocks, classes, timetable: timetable || {} };
         // Rebuild teacher subjects from class assignments
-        const teacherSubjectsMap = {};
-        _cache.teachers.forEach(t => { teacherSubjectsMap[t.name] = new Set(); });
+        const map = {};
+        _cache.teachers.forEach(t => { map[t.name] = new Set(); });
         _cache.classes.forEach(cls => {
-            cls.subjects.forEach(sub => {
-                if (sub.teacher && teacherSubjectsMap[sub.teacher]) {
-                    teacherSubjectsMap[sub.teacher].add(sub.name);
-                }
+            (cls.subjects || []).forEach(sub => {
+                if (sub.teacher && map[sub.teacher]) map[sub.teacher].add(sub.name);
             });
         });
-        _cache.teachers.forEach(t => { t.subjects = [...(teacherSubjectsMap[t.name] || [])]; });
+        _cache.teachers.forEach(t => { t.subjects = [...(map[t.name] || [])]; });
     } catch (e) {
-        console.error('API fetch failed, using localStorage fallback:', e);
-        const stored = localStorage.getItem('schoolTimetableData');
-        _cache = stored ? JSON.parse(stored) : { classes: [], teachers: [], blocks: [], timetable: {} };
+        console.error('API fetch failed:', e);
     }
     return _cache;
 }
@@ -80,10 +57,8 @@ function getData() {
 
 function saveData(data) {
     _cache = data;
-    // Also save timetable to backend when generated
 }
 
-// API helper functions
 async function apiPost(endpoint, body) {
     const res = await fetch(`${API_BASE}${endpoint}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
@@ -555,26 +530,17 @@ function saveClass(editIdx) {
 
     const doSave = async () => {
         try {
-            const body = {
-                name: className,
-                divisions: uniqueDivisions,
-                block: block,
-                class_teacher: classTeacher,
-                subjects: subjects
-            };
+            const classData = { name: className, divisions: uniqueDivisions, block, classTeacher, subjects };
             if (editIdx !== null) {
-                const cls = data.classes[editIdx];
-                await apiPut(`/classes/${cls.id}`, body);
+                await apiPut(`/classes/${data.classes[editIdx].id}`, classData);
             } else {
-                await apiPost('/classes', body);
+                await apiPost('/classes', classData);
             }
             await fetchData();
             closeModal('classModal');
-            showToast(`Class ${className} ${editIdx !== null ? 'updated' : 'created'} successfully!`, 'success');
+            showToast(`Class ${className} ${editIdx !== null ? 'updated' : 'created'}!`, 'success');
             renderPage('classes');
-        } catch (e) {
-            showToast('Error saving class', 'error');
-        }
+        } catch (e) { showToast('Error saving class', 'error'); }
     };
     doSave();
 }
@@ -638,8 +604,7 @@ function viewClass(idx) {
 function deleteClass(idx) {
     if (!confirm('Are you sure you want to delete this class?')) return;
     const data = getData();
-    const cls = data.classes[idx];
-    apiDelete(`/classes/${cls.id}`).then(() => fetchData()).then(() => {
+    apiDelete(`/classes/${data.classes[idx].id}`).then(() => fetchData()).then(() => {
         showToast('Class deleted', 'success');
         renderPage('classes');
     });
@@ -783,39 +748,27 @@ function saveTeacher(editIdx) {
     const isBlockHead = document.getElementById('isBlockHead').checked;
     const headOfBlock = isBlockHead ? document.getElementById('headOfBlock').value : '';
 
-    if (!name) {
-        showToast('Please enter teacher name', 'error');
-        return;
-    }
-    if (isBlockHead && !headOfBlock) {
-        showToast('Please select the block this teacher heads', 'error');
-        return;
-    }
+    if (!name) { showToast('Please enter teacher name', 'error'); return; }
+    if (isBlockHead && !headOfBlock) { showToast('Please select the block this teacher heads', 'error'); return; }
 
-    const body = { name, max_periods_per_day: maxPeriodsPerDay, is_block_head: isBlockHead, head_of_block: headOfBlock };
+    const body = { name, maxPeriodsPerDay, isBlockHead, headOfBlock };
 
     const doSave = async () => {
         try {
             if (editIdx !== null) {
-                const teacher = data.teachers[editIdx];
-                await apiPut(`/teachers/${teacher.id}`, body);
+                await apiPut(`/teachers/${data.teachers[editIdx].id}`, body);
             } else {
                 await apiPost('/teachers', body);
             }
-            // Also update block head reference
             if (isBlockHead && headOfBlock) {
                 const block = data.blocks.find(b => b.name === headOfBlock);
-                if (block) {
-                    await apiPut(`/blocks/${block.id}`, { head: name });
-                }
+                if (block) await apiPut(`/blocks/${block.id}`, { head: name });
             }
             await fetchData();
             closeModal('teacherModal');
-            showToast(`Teacher ${name} ${editIdx !== null ? 'updated' : 'added'} successfully!`, 'success');
+            showToast(`Teacher ${name} ${editIdx !== null ? 'updated' : 'added'}!`, 'success');
             renderPage('teachers');
-        } catch (e) {
-            showToast('Error saving teacher', 'error');
-        }
+        } catch (e) { showToast('Error saving teacher', 'error'); }
     };
     doSave();
 }
@@ -827,8 +780,7 @@ function editTeacher(idx) {
 function deleteTeacher(idx) {
     if (!confirm('Are you sure you want to delete this teacher?')) return;
     const data = getData();
-    const teacher = data.teachers[idx];
-    apiDelete(`/teachers/${teacher.id}`).then(() => fetchData()).then(() => {
+    apiDelete(`/teachers/${data.teachers[idx].id}`).then(() => fetchData()).then(() => {
         showToast('Teacher deleted', 'success');
         renderPage('teachers');
     });
@@ -948,30 +900,22 @@ function saveBlock(editIdx) {
                 const block = data.blocks[editIdx];
                 const oldHead = block.head;
                 await apiPut(`/blocks/${block.id}`, { name, description, head });
-                // Clear old head's block head status
                 if (oldHead && oldHead !== head) {
-                    const oldHeadTeacher = data.teachers.find(t => t.name === oldHead);
-                    if (oldHeadTeacher) {
-                        await apiPut(`/teachers/${oldHeadTeacher.id}`, { is_block_head: false, head_of_block: '' });
-                    }
+                    const oht = data.teachers.find(t => t.name === oldHead);
+                    if (oht) await apiPut(`/teachers/${oht.id}`, { isBlockHead: false, headOfBlock: '' });
                 }
             } else {
                 await apiPost('/blocks', { name, description, head });
             }
-            // Update teacher's block head status
             if (head) {
-                const headTeacher = data.teachers.find(t => t.name === head);
-                if (headTeacher) {
-                    await apiPut(`/teachers/${headTeacher.id}`, { is_block_head: true, head_of_block: name });
-                }
+                const ht = data.teachers.find(t => t.name === head);
+                if (ht) await apiPut(`/teachers/${ht.id}`, { isBlockHead: true, headOfBlock: name });
             }
             await fetchData();
             closeModal('blockModal');
-            showToast(`Block ${name} ${editIdx !== null ? 'updated' : 'added'} successfully!`, 'success');
+            showToast(`Block ${name} ${editIdx !== null ? 'updated' : 'added'}!`, 'success');
             renderPage('blocks');
-        } catch (e) {
-            showToast('Error saving block', 'error');
-        }
+        } catch (e) { showToast('Error saving block', 'error'); }
     };
     doSave();
 }
@@ -983,8 +927,7 @@ function editBlock(idx) {
 function deleteBlock(idx) {
     if (!confirm('Are you sure you want to delete this block?')) return;
     const data = getData();
-    const block = data.blocks[idx];
-    apiDelete(`/blocks/${block.id}`).then(() => fetchData()).then(() => {
+    apiDelete(`/blocks/${data.blocks[idx].id}`).then(() => fetchData()).then(() => {
         showToast('Block deleted', 'success');
         renderPage('blocks');
     });
@@ -1145,7 +1088,7 @@ function generateTimetable() {
                     data.timetable = result.timetable;
                     _cache.timetable = result.timetable;
                     // Save timetable to backend
-                    apiPost('/timetable', { data: result.timetable });
+                    apiPost('/timetable', result.timetable);
                     showToast('Timetable generated successfully!', 'success');
                     document.getElementById('generationResult').innerHTML = `
                         <div style="background:#ecfdf5;padding:16px;border-radius:var(--radius);border:1px solid var(--success);">

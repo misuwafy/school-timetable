@@ -7,3 +7,9 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.11"
+      - key: DB_PATH
+        value: /var/data/timetable.db
+    disk:
+      name: timetable-data
+      mountPath: /var/data
+      sizeGB: 1

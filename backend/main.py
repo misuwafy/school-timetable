@@ -10,211 +10,169 @@ import os
 from database import engine, get_db, Base
 from models import Teacher, Block, SchoolClass, Timetable
 
-# Create tables
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="KKHMS Alathiyur - Timetable Management")
+app = FastAPI(title="KKHMS Alathiyur - Timetable")
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-# ===== Pydantic Schemas =====
-class TeacherCreate(BaseModel):
-    name: str
-    max_periods_per_day: int = 7
-    is_block_head: bool = False
-    head_of_block: str = ""
-
-
-class TeacherUpdate(BaseModel):
+# ===== Schemas =====
+class TeacherSchema(BaseModel):
     name: Optional[str] = None
-    max_periods_per_day: Optional[int] = None
-    is_block_head: Optional[bool] = None
-    head_of_block: Optional[str] = None
+    maxPeriodsPerDay: Optional[int] = 7
+    isBlockHead: Optional[bool] = False
+    headOfBlock: Optional[str] = ""
 
 
-class BlockCreate(BaseModel):
-    name: str
-    description: str = ""
-    head: str = ""
-
-
-class BlockUpdate(BaseModel):
+class BlockSchema(BaseModel):
     name: Optional[str] = None
-    description: Optional[str] = None
-    head: Optional[str] = None
+    description: Optional[str] = ""
+    head: Optional[str] = ""
 
 
-class ClassCreate(BaseModel):
-    name: str
-    divisions: list[str]
-    block: str = ""
-    class_teacher: str = ""
-    subjects: list[dict]
-
-
-class ClassUpdate(BaseModel):
+class ClassSchema(BaseModel):
     name: Optional[str] = None
-    divisions: Optional[list[str]] = None
-    block: Optional[str] = None
-    class_teacher: Optional[str] = None
-    subjects: Optional[list[dict]] = None
+    divisions: Optional[list] = None
+    block: Optional[str] = ""
+    classTeacher: Optional[str] = ""
+    subjects: Optional[list] = None
 
 
-class TimetableSave(BaseModel):
-    data: dict
-
-
-# ===== Teacher Endpoints =====
+# ===== Teachers =====
 @app.get("/api/teachers")
 def get_teachers(db: Session = Depends(get_db)):
-    return db.query(Teacher).all()
+    teachers = db.query(Teacher).order_by(Teacher.name).all()
+    return [{"id": t.id, "name": t.name, "maxPeriodsPerDay": t.maxPeriodsPerDay,
+             "isBlockHead": t.isBlockHead, "headOfBlock": t.headOfBlock} for t in teachers]
 
 
 @app.post("/api/teachers")
-def create_teacher(teacher: TeacherCreate, db: Session = Depends(get_db)):
-    db_teacher = Teacher(**teacher.model_dump())
-    db.add(db_teacher)
+def create_teacher(data: TeacherSchema, db: Session = Depends(get_db)):
+    t = Teacher(name=data.name, maxPeriodsPerDay=data.maxPeriodsPerDay,
+                isBlockHead=data.isBlockHead, headOfBlock=data.headOfBlock)
+    db.add(t)
     db.commit()
-    db.refresh(db_teacher)
-    return db_teacher
+    db.refresh(t)
+    return {"id": t.id, "name": t.name}
 
 
-@app.put("/api/teachers/{teacher_id}")
-def update_teacher(teacher_id: int, teacher: TeacherUpdate, db: Session = Depends(get_db)):
-    db_teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
-    if not db_teacher:
-        raise HTTPException(status_code=404, detail="Teacher not found")
-    update_data = teacher.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
-        setattr(db_teacher, key, value)
+@app.put("/api/teachers/{tid}")
+def update_teacher(tid: int, data: TeacherSchema, db: Session = Depends(get_db)):
+    t = db.query(Teacher).filter(Teacher.id == tid).first()
+    if not t:
+        raise HTTPException(404, "Not found")
+    for k, v in data.model_dump(exclude_unset=True).items():
+        setattr(t, k, v)
     db.commit()
-    db.refresh(db_teacher)
-    return db_teacher
+    return {"ok": True}
 
 
-@app.delete("/api/teachers/{teacher_id}")
-def delete_teacher(teacher_id: int, db: Session = Depends(get_db)):
-    db_teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
-    if not db_teacher:
-        raise HTTPException(status_code=404, detail="Teacher not found")
-    db.delete(db_teacher)
-    db.commit()
-    return {"message": "Teacher deleted"}
+@app.delete("/api/teachers/{tid}")
+def delete_teacher(tid: int, db: Session = Depends(get_db)):
+    t = db.query(Teacher).filter(Teacher.id == tid).first()
+    if t:
+        db.delete(t)
+        db.commit()
+    return {"ok": True}
 
 
-# ===== Block Endpoints =====
+# ===== Blocks =====
 @app.get("/api/blocks")
 def get_blocks(db: Session = Depends(get_db)):
-    return db.query(Block).all()
+    blocks = db.query(Block).all()
+    return [{"id": b.id, "name": b.name, "description": b.description, "head": b.head} for b in blocks]
 
 
 @app.post("/api/blocks")
-def create_block(block: BlockCreate, db: Session = Depends(get_db)):
-    db_block = Block(**block.model_dump())
-    db.add(db_block)
+def create_block(data: BlockSchema, db: Session = Depends(get_db)):
+    b = Block(name=data.name, description=data.description, head=data.head)
+    db.add(b)
     db.commit()
-    db.refresh(db_block)
-    return db_block
+    db.refresh(b)
+    return {"id": b.id, "name": b.name}
 
 
-@app.put("/api/blocks/{block_id}")
-def update_block(block_id: int, block: BlockUpdate, db: Session = Depends(get_db)):
-    db_block = db.query(Block).filter(Block.id == block_id).first()
-    if not db_block:
-        raise HTTPException(status_code=404, detail="Block not found")
-    update_data = block.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
-        setattr(db_block, key, value)
+@app.put("/api/blocks/{bid}")
+def update_block(bid: int, data: BlockSchema, db: Session = Depends(get_db)):
+    b = db.query(Block).filter(Block.id == bid).first()
+    if not b:
+        raise HTTPException(404, "Not found")
+    for k, v in data.model_dump(exclude_unset=True).items():
+        setattr(b, k, v)
     db.commit()
-    db.refresh(db_block)
-    return db_block
+    return {"ok": True}
 
 
-@app.delete("/api/blocks/{block_id}")
-def delete_block(block_id: int, db: Session = Depends(get_db)):
-    db_block = db.query(Block).filter(Block.id == block_id).first()
-    if not db_block:
-        raise HTTPException(status_code=404, detail="Block not found")
-    db.delete(db_block)
-    db.commit()
-    return {"message": "Block deleted"}
+@app.delete("/api/blocks/{bid}")
+def delete_block(bid: int, db: Session = Depends(get_db)):
+    b = db.query(Block).filter(Block.id == bid).first()
+    if b:
+        db.delete(b)
+        db.commit()
+    return {"ok": True}
 
 
-# ===== Class Endpoints =====
+# ===== Classes =====
 @app.get("/api/classes")
 def get_classes(db: Session = Depends(get_db)):
-    return db.query(SchoolClass).all()
+    classes = db.query(SchoolClass).all()
+    return [{"id": c.id, "name": c.name, "divisions": c.divisions, "block": c.block,
+             "classTeacher": c.classTeacher, "subjects": c.subjects} for c in classes]
 
 
 @app.post("/api/classes")
-def create_class(cls: ClassCreate, db: Session = Depends(get_db)):
-    db_class = SchoolClass(**cls.model_dump())
-    db.add(db_class)
+def create_class(data: ClassSchema, db: Session = Depends(get_db)):
+    c = SchoolClass(name=data.name, divisions=data.divisions, block=data.block,
+                    classTeacher=data.classTeacher, subjects=data.subjects)
+    db.add(c)
     db.commit()
-    db.refresh(db_class)
-    return db_class
+    db.refresh(c)
+    return {"id": c.id, "name": c.name}
 
 
-@app.put("/api/classes/{class_id}")
-def update_class(class_id: int, cls: ClassUpdate, db: Session = Depends(get_db)):
-    db_class = db.query(SchoolClass).filter(SchoolClass.id == class_id).first()
-    if not db_class:
-        raise HTTPException(status_code=404, detail="Class not found")
-    update_data = cls.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
-        setattr(db_class, key, value)
+@app.put("/api/classes/{cid}")
+def update_class(cid: int, data: ClassSchema, db: Session = Depends(get_db)):
+    c = db.query(SchoolClass).filter(SchoolClass.id == cid).first()
+    if not c:
+        raise HTTPException(404, "Not found")
+    for k, v in data.model_dump(exclude_unset=True).items():
+        setattr(c, k, v)
     db.commit()
-    db.refresh(db_class)
-    return db_class
+    return {"ok": True}
 
 
-@app.delete("/api/classes/{class_id}")
-def delete_class(class_id: int, db: Session = Depends(get_db)):
-    db_class = db.query(SchoolClass).filter(SchoolClass.id == class_id).first()
-    if not db_class:
-        raise HTTPException(status_code=404, detail="Class not found")
-    db.delete(db_class)
-    db.commit()
-    return {"message": "Class deleted"}
+@app.delete("/api/classes/{cid}")
+def delete_class(cid: int, db: Session = Depends(get_db)):
+    c = db.query(SchoolClass).filter(SchoolClass.id == cid).first()
+    if c:
+        db.delete(c)
+        db.commit()
+    return {"ok": True}
 
 
-# ===== Timetable Endpoints =====
+# ===== Timetable =====
 @app.get("/api/timetable")
 def get_timetable(db: Session = Depends(get_db)):
     tt = db.query(Timetable).first()
-    if tt:
-        return tt.data
-    return {}
+    return tt.data if tt else {}
 
 
 @app.post("/api/timetable")
-def save_timetable(tt: TimetableSave, db: Session = Depends(get_db)):
-    # Delete existing and save new
+def save_timetable(data: dict, db: Session = Depends(get_db)):
     db.query(Timetable).delete()
-    db_tt = Timetable(data=tt.data)
-    db.add(db_tt)
+    db.add(Timetable(data=data))
     db.commit()
-    return {"message": "Timetable saved"}
-
-
-@app.delete("/api/timetable")
-def delete_timetable(db: Session = Depends(get_db)):
-    db.query(Timetable).delete()
-    db.commit()
-    return {"message": "Timetable deleted"}
+    return {"ok": True}
 
 
 # ===== Serve Frontend =====
 frontend_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-app.mount("/static", StaticFiles(directory=frontend_path), name="static")
 
 
 @app.get("/")
