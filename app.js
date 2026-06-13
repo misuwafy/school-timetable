@@ -449,8 +449,8 @@ function renderSubjectEntries(cls, classNum) {
             </table>
         </div>
         <div style="margin-top:12px;padding:10px;background:var(--bg);border-radius:var(--radius);font-size:13px;color:var(--text-light);">
-            <strong>Total:</strong> <span id="totalPeriodsCount">0</span> / 35 periods
-            <small style="display:block;margin-top:4px;">Must equal 35 (5 days × 7 periods per day)</small>
+            <strong>Total:</strong> <span id="totalPeriodsCount">0</span> / <span id="targetPeriods">35</span> periods
+            <small style="display:block;margin-top:4px;">Class 8 & 9: enter 32 (PET/Music/Art auto-added). Class 10: must equal 35.</small>
         </div>
         <script>
             setTimeout(() => {
@@ -459,9 +459,13 @@ function renderSubjectEntries(cls, classNum) {
                     let total = 0;
                     inputs.forEach(inp => { total += parseInt(inp.value) || 0; });
                     const el = document.getElementById('totalPeriodsCount');
+                    const classNum = document.getElementById('className')?.value;
+                    const target = (classNum === '8' || classNum === '9') ? 32 : 35;
+                    const targetEl = document.getElementById('targetPeriods');
+                    if (targetEl) targetEl.textContent = target;
                     if (el) {
                         el.textContent = total;
-                        el.style.color = total === 35 ? 'var(--success)' : (total > 35 ? 'var(--danger)' : 'var(--text)');
+                        el.style.color = total === target ? 'var(--success)' : (total > target ? 'var(--danger)' : 'var(--text)');
                     }
                 };
                 inputs.forEach(inp => inp.addEventListener('input', updateTotal));
@@ -536,9 +540,26 @@ function saveClass(editIdx) {
 
     // Validate total periods
     const totalPeriods = subjects.reduce((s, sub) => s + sub.periodsPerWeek, 0);
-    if (totalPeriods !== 35) {
-        showToast(`Total periods must be 35 (5 days × 7 periods). Current: ${totalPeriods}`, 'warning');
+    const isClass8or9 = (className === '8' || className === '9');
+    const expectedTotal = isClass8or9 ? 32 : 35;
+
+    if (totalPeriods !== expectedTotal && totalPeriods !== 35) {
+        showToast(`Total periods must be ${expectedTotal} for Class ${className} (${isClass8or9 ? 'PET/Music/Art auto-added' : '5 days × 7'}). Current: ${totalPeriods}`, 'warning');
         return;
+    }
+
+    // Auto-add PET, Music, Art for class 8 & 9 if total is 32
+    if (isClass8or9 && totalPeriods === 32) {
+        const specialSubjects = [
+            { name: 'PET', periodsPerWeek: 1, teacher: 'Shajir' },
+            { name: 'Music', periodsPerWeek: 1, teacher: 'Divya' },
+            { name: 'Art', periodsPerWeek: 1, teacher: 'Udayesh' }
+        ];
+        specialSubjects.forEach(sp => {
+            if (!subjects.find(s => s.name === sp.name)) {
+                subjects.push(sp);
+            }
+        });
     }
 
     const classObj = {
@@ -1872,9 +1893,26 @@ async function handleExcelUpload(event) {
         let errors = [];
         classes.forEach(cls => {
             const total = cls.subjects.reduce((s, sub) => s + sub.periodsPerWeek, 0);
-            if (total !== 35) {
-                errors.push(`Class ${cls.name}-${cls.divisions[0]}: total = ${total} (must be 35)`);
+            const isClass8or9 = (cls.name === '8' || cls.name === '9');
+            const expectedTotal = isClass8or9 ? 32 : 35;
+
+            if (total !== expectedTotal && total !== 35) {
+                errors.push(`Class ${cls.name}-${cls.divisions[0]}: total = ${total} (must be ${expectedTotal})`);
             }
+
+            // Auto-add PET, Music, Art for class 8/9 if total is 32
+            if (isClass8or9 && total === 32) {
+                if (!cls.subjects.find(s => s.name === 'PET')) {
+                    cls.subjects.push({ name: 'PET', periodsPerWeek: 1, teacher: 'Shajir' });
+                }
+                if (!cls.subjects.find(s => s.name === 'Music')) {
+                    cls.subjects.push({ name: 'Music', periodsPerWeek: 1, teacher: 'Divya' });
+                }
+                if (!cls.subjects.find(s => s.name === 'Art')) {
+                    cls.subjects.push({ name: 'Art', periodsPerWeek: 1, teacher: 'Udayesh' });
+                }
+            }
+
             cls.subjects.forEach(sub => {
                 if (!sub.teacher) {
                     errors.push(`Class ${cls.name}-${cls.divisions[0]}: no teacher for ${sub.name}`);
