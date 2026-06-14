@@ -1317,6 +1317,10 @@ function runTimetableAlgorithm(data) {
     const timetable = {};
     const teacherSchedule = {};
 
+    // Special subjects where teacher can handle multiple divisions simultaneously
+    const MULTI_CLASS_SUBJECTS = ['PET', 'Music', 'Art', 'Work Experience'];
+    const MAX_SIMULTANEOUS = 5;
+
     // Initialize
     data.teachers.forEach(t => {
         teacherSchedule[t.name] = {};
@@ -1331,7 +1335,18 @@ function runTimetableAlgorithm(data) {
         });
     });
 
-    // Build assignments grouped by teacher (busiest first)
+    // Build class teacher mapping: classDiv -> classTeacher name
+    const classTeacherMap = {};
+    data.classes.forEach(cls => {
+        cls.divisions.forEach(div => {
+            const key = `${cls.name}-${div}`;
+            if (cls.classTeacher) {
+                classTeacherMap[key] = cls.classTeacher;
+            }
+        });
+    });
+
+    // Build assignments grouped by teacher
     const teacherAssignments = {};
     data.classes.forEach(cls => {
         cls.divisions.forEach(div => {
@@ -1341,7 +1356,8 @@ function runTimetableAlgorithm(data) {
                     if (!teacherAssignments[sub.teacher]) teacherAssignments[sub.teacher] = [];
                     for (let i = 0; i < sub.periodsPerWeek; i++) {
                         teacherAssignments[sub.teacher].push({
-                            classDiv: key, subject: sub.name, teacher: sub.teacher
+                            classDiv: key, subject: sub.name, teacher: sub.teacher,
+                            isMultiClass: MULTI_CLASS_SUBJECTS.includes(sub.name)
                         });
                     }
                 }
@@ -1356,7 +1372,6 @@ function runTimetableAlgorithm(data) {
 
     let bestFailCount = Infinity;
     let bestTimetable = null;
-    let bestTeacherSchedule = null;
     const maxAttempts = 30;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -1368,20 +1383,47 @@ function runTimetableAlgorithm(data) {
             DAYS.forEach(day => { teacherSchedule[t.name][day] = {}; });
         });
 
-        // Vary teacher order each attempt
+        // STEP 1: Try to place class teachers in Period 1 of their class (priority, not strict)
+        Object.entries(classTeacherMap).forEach(([classDiv, ctName]) => {
+            // Find a subject this class teacher teaches in this class
+            const ctAssignments = (teacherAssignments[ctName] || []).filter(a => a.classDiv === classDiv);
+            if (ctAssignments.length > 0) {
+                // Try to place one of their subjects in period 1 on each day
+                const days = [...DAYS];
+                shuffleArray(days);
+                for (const day of days) {
+                    if (timetable[classDiv][day][1]) continue; // period 1 already taken
+                    const teacher = data.teachers.find(t => t.name === ctName);
+                    if (!teacher) continue;
+                    if (teacher.isBlockHead) continue; // block heads skip period 1
+                    if (teacherSchedule[ctName][day][1]) continue; // teacher busy
+
+                    // Place one assignment
+                    const assignment = ctAssignments.find(a => {
+                        const subToday = Object.values(timetable[classDiv][day]).filter(s => s.subject === a.subject).length;
+                        return subToday < 2;
+                    });
+                    if (assignment) {
+                        timetable[classDiv][day][1] = { subject: assignment.subject, teacher: ctName };
+                        teacherSchedule[ctName][day][1] = classDiv;
+                        // Remove this assignment from pool
+                        const idx = teacherAssignments[ctName].findIndex(a => a.classDiv === classDiv && a.subject === assignment.subject);
+                        if (idx !== -1) teacherAssignments[ctName].splice(idx, 1);
+                    }
+                    break; // only try one day per attempt for variety
+                }
+            }
+        });
+
+        // STEP 2: Place remaining assignments
         const teacherOrder = [...sortedTeachers];
-        if (attempt % 3 === 1) {
-            // Reverse
-            teacherOrder.reverse();
-        } else if (attempt % 3 === 2) {
-            // Shuffle
-            shuffleArray(teacherOrder);
-        }
+        if (attempt % 3 === 1) teacherOrder.reverse();
+        else if (attempt % 3 === 2) shuffleArray(teacherOrder);
 
         let failCount = 0;
 
         for (const teacherName of teacherOrder) {
-            const assignments = [...teacherAssignments[teacherName]];
+            const assignments = [...(teacherAssignments[teacherName] || [])];
             shuffleArray(assignments);
 
             // Group by classDiv to spread divisions evenly
@@ -1395,7 +1437,7 @@ function runTimetableAlgorithm(data) {
             const interleaved = [];
             const classDivKeys = Object.keys(byClassDiv);
             shuffleArray(classDivKeys);
-            let maxLen = Math.max(...classDivKeys.map(k => byClassDiv[k].length));
+            let maxLen = Math.max(...classDivKeys.map(k => byClassDiv[k].length), 0);
             for (let i = 0; i < maxLen; i++) {
                 for (const key of classDivKeys) {
                     if (i < byClassDiv[key].length) {
@@ -1411,7 +1453,6 @@ function runTimetableAlgorithm(data) {
                 }
             }
 
-            // Retry unplaced with relaxed constraints
             for (const assignment of unplaced) {
                 if (!placeAssignment(assignment, timetable, teacherSchedule, data, true)) {
                     failCount++;
@@ -1426,15 +1467,31 @@ function runTimetableAlgorithm(data) {
         if (failCount < bestFailCount) {
             bestFailCount = failCount;
             bestTimetable = JSON.parse(JSON.stringify(timetable));
-            bestTeacherSchedule = JSON.parse(JSON.stringify(teacherSchedule));
         }
+
+        // Rebuild assignments for next attempt (restore what was used for class teacher priority)
+        // Re-read from data
+        Object.keys(teacherAssignments).forEach(k => { teacherAssignments[k] = []; });
+        data.classes.forEach(cls => {
+            cls.divisions.forEach(div => {
+                const key = `${cls.name}-${div}`;
+                cls.subjects.forEach(sub => {
+                    if (sub.periodsPerWeek > 0 && sub.teacher) {
+                        if (!teacherAssignments[sub.teacher]) teacherAssignments[sub.teacher] = [];
+                        for (let i = 0; i < sub.periodsPerWeek; i++) {
+                            teacherAssignments[sub.teacher].push({
+                                classDiv: key, subject: sub.name, teacher: sub.teacher,
+                                isMultiClass: MULTI_CLASS_SUBJECTS.includes(sub.name)
+                            });
+                        }
+                    }
+                });
+            });
+        });
     }
 
-    // If we still have failures, try one more pass using the best result and filling gaps
     if (bestTimetable) {
-        // Restore best
         Object.keys(bestTimetable).forEach(key => { timetable[key] = bestTimetable[key]; });
-        Object.keys(bestTeacherSchedule).forEach(key => { teacherSchedule[key] = bestTeacherSchedule[key]; });
     }
 
     return {
@@ -1442,6 +1499,7 @@ function runTimetableAlgorithm(data) {
         error: `Could not place ${bestFailCount} period(s) after ${maxAttempts} attempts. Check if any teacher has too many periods across divisions to fit without time conflicts.`
     };
 }
+    }
 
 function placeAssignment(assignment, timetable, teacherSchedule, data, relaxed = false) {
     const { classDiv, subject, teacher: assignedTeacherName } = assignment;
