@@ -1533,6 +1533,57 @@ function runTimetableAlgorithm(data) {
             }
         }
 
+        // STEP 3: Fill any remaining blanks with relaxed constraints (allow up to 7 periods/day)
+        classDivs.forEach(cd => {
+            DAYS.forEach(day => {
+                PERIODS.forEach(period => {
+                    if (timetable[cd][day][period]) return; // already filled
+
+                    // Find any subject still needed for this class
+                    const candidates = remaining[cd].filter(r => {
+                        if (r.left <= 0) return false;
+                        const subToday = Object.values(timetable[cd][day]).filter(s => s.subject === r.subject).length;
+                        if (subToday >= 3) return false; // relaxed: allow 3 same subject per day
+
+                        if (r.isMultiClass) return true;
+
+                        if (r.shared) {
+                            return r.teachers.every(t => {
+                                if (!teacherBusy[t]) return true;
+                                return !teacherBusy[t][day][period];
+                            });
+                        }
+
+                        const t = r.teachers[0];
+                        if (!t) return false;
+                        if (teacherBusy[t] && teacherBusy[t][day][period]) return false;
+                        // Relaxed: allow up to 7 periods/day to avoid blanks
+                        if (teacherBusy[t]) {
+                            const periodsToday = Object.keys(teacherBusy[t][day]).filter(p => teacherBusy[t][day][p]).length;
+                            if (periodsToday >= 7) return false;
+                        }
+                        if (period === 1) {
+                            const teacherObj = data.teachers.find(tc => tc.name === t);
+                            if (teacherObj && teacherObj.isBlockHead) return false;
+                        }
+                        return true;
+                    });
+
+                    if (candidates.length > 0) {
+                        candidates.sort((a, b) => b.left - a.left);
+                        const pick = candidates[0];
+                        timetable[cd][day][period] = { subject: pick.subject, teacher: pick.teacher, shared: pick.shared };
+                        pick.left--;
+                        if (!pick.isMultiClass) {
+                            pick.teachers.forEach(t => {
+                                if (teacherBusy[t]) teacherBusy[t][day][period] = true;
+                            });
+                        }
+                    }
+                });
+            });
+        });
+
         // Count failures
         let failCount = 0;
         const failedDetails = {};
