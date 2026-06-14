@@ -1499,7 +1499,6 @@ function runTimetableAlgorithm(data) {
         error: `Could not place ${bestFailCount} period(s) after ${maxAttempts} attempts. Check if any teacher has too many periods across divisions to fit without time conflicts.`
     };
 }
-    }
 
 function placeAssignment(assignment, timetable, teacherSchedule, data, relaxed = false) {
     const { classDiv, subject, teacher: assignedTeacherName } = assignment;
