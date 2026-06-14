@@ -1,32 +1,32 @@
-from sqlalchemy import Column, Integer, String, Boolean, JSON
+from sqlalchemy import Column, Integer, String, Boolean, JSON, Text
 from database import Base
 
 
 class Teacher(Base):
     __tablename__ = "teachers"
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    name = Column(String, nullable=False)
+    name = Column(String(200), nullable=False)
     maxPeriodsPerDay = Column(Integer, default=7)
     isBlockHead = Column(Boolean, default=False)
-    headOfBlock = Column(String, default="")
+    headOfBlock = Column(String(200), default="")
 
 
 class Block(Base):
     __tablename__ = "blocks"
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    name = Column(String, nullable=False, unique=True)
-    description = Column(String, default="")
-    head = Column(String, default="")
+    name = Column(String(200), nullable=False, unique=True)
+    description = Column(String(500), default="")
+    head = Column(String(200), default="")
 
 
 class SchoolClass(Base):
     __tablename__ = "classes"
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    name = Column(String, nullable=False)
+    name = Column(String(50), nullable=False)
     divisions = Column(JSON, nullable=False)
-    block = Column(String, default="")
-    classType = Column(String, default="")
-    classTeacher = Column(String, default="")
+    block = Column(String(200), default="")
+    classType = Column(String(200), default="")
+    classTeacher = Column(String(200), default="")
     subjects = Column(JSON, nullable=False)
 
 
