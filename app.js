@@ -1347,18 +1347,47 @@ function runTimetableAlgorithm(data) {
     });
 
     // Build assignments grouped by teacher
+    // For shared subjects: only create assignment for FIRST teacher in group
+    // The shared teachers will be recorded in the timetable slot together
     const teacherAssignments = {};
+    const sharedGroups = {}; // classDiv+group -> [{teacher, subject}]
+
     data.classes.forEach(cls => {
         cls.divisions.forEach(div => {
             const key = `${cls.name}-${div}`;
+            const processedGroups = new Set();
+
             cls.subjects.forEach(sub => {
                 if (sub.periodsPerWeek > 0 && sub.teacher) {
-                    if (!teacherAssignments[sub.teacher]) teacherAssignments[sub.teacher] = [];
-                    for (let i = 0; i < sub.periodsPerWeek; i++) {
-                        teacherAssignments[sub.teacher].push({
-                            classDiv: key, subject: sub.name, teacher: sub.teacher,
-                            isMultiClass: MULTI_CLASS_SUBJECTS.includes(sub.name)
-                        });
+                    // If shared, only add once per group (first teacher handles placement)
+                    if (sub.shared && sub.sharedGroup) {
+                        const groupKey = `${key}_${sub.sharedGroup}`;
+                        if (!sharedGroups[groupKey]) {
+                            sharedGroups[groupKey] = [];
+                        }
+                        sharedGroups[groupKey].push({ teacher: sub.teacher, subject: sub.name });
+
+                        // Only create assignments for the first teacher in the group
+                        if (!processedGroups.has(sub.sharedGroup)) {
+                            processedGroups.add(sub.sharedGroup);
+                            if (!teacherAssignments[sub.teacher]) teacherAssignments[sub.teacher] = [];
+                            for (let i = 0; i < sub.periodsPerWeek; i++) {
+                                teacherAssignments[sub.teacher].push({
+                                    classDiv: key, subject: sub.name, teacher: sub.teacher,
+                                    isMultiClass: MULTI_CLASS_SUBJECTS.includes(sub.name),
+                                    sharedGroup: groupKey
+                                });
+                            }
+                        }
+                    } else {
+                        if (!teacherAssignments[sub.teacher]) teacherAssignments[sub.teacher] = [];
+                        for (let i = 0; i < sub.periodsPerWeek; i++) {
+                            teacherAssignments[sub.teacher].push({
+                                classDiv: key, subject: sub.name, teacher: sub.teacher,
+                                isMultiClass: MULTI_CLASS_SUBJECTS.includes(sub.name),
+                                sharedGroup: null
+                            });
+                        }
                     }
                 }
             });
@@ -1457,13 +1486,13 @@ function runTimetableAlgorithm(data) {
 
             const unplaced = [];
             for (const assignment of interleaved) {
-                if (!placeAssignment(assignment, timetable, teacherSchedule, data, false)) {
+                if (!placeAssignment(assignment, timetable, teacherSchedule, data, false, sharedGroups)) {
                     unplaced.push(assignment);
                 }
             }
 
             for (const assignment of unplaced) {
-                if (!placeAssignment(assignment, timetable, teacherSchedule, data, true)) {
+                if (!placeAssignment(assignment, timetable, teacherSchedule, data, true, sharedGroups)) {
                     failCount++;
                     const key = `${assignment.teacher} (${assignment.subject})`;
                     failedDetails[key] = (failedDetails[key] || 0) + 1;
@@ -1481,19 +1510,34 @@ function runTimetableAlgorithm(data) {
         }
 
         // Rebuild assignments for next attempt (restore what was used for class teacher priority)
-        // Re-read from data
         Object.keys(teacherAssignments).forEach(k => { teacherAssignments[k] = []; });
         data.classes.forEach(cls => {
             cls.divisions.forEach(div => {
                 const key = `${cls.name}-${div}`;
+                const processedGroups = new Set();
                 cls.subjects.forEach(sub => {
                     if (sub.periodsPerWeek > 0 && sub.teacher) {
-                        if (!teacherAssignments[sub.teacher]) teacherAssignments[sub.teacher] = [];
-                        for (let i = 0; i < sub.periodsPerWeek; i++) {
-                            teacherAssignments[sub.teacher].push({
-                                classDiv: key, subject: sub.name, teacher: sub.teacher,
-                                isMultiClass: MULTI_CLASS_SUBJECTS.includes(sub.name)
-                            });
+                        if (sub.shared && sub.sharedGroup) {
+                            if (!processedGroups.has(sub.sharedGroup)) {
+                                processedGroups.add(sub.sharedGroup);
+                                if (!teacherAssignments[sub.teacher]) teacherAssignments[sub.teacher] = [];
+                                for (let i = 0; i < sub.periodsPerWeek; i++) {
+                                    teacherAssignments[sub.teacher].push({
+                                        classDiv: key, subject: sub.name, teacher: sub.teacher,
+                                        isMultiClass: MULTI_CLASS_SUBJECTS.includes(sub.name),
+                                        sharedGroup: `${key}_${sub.sharedGroup}`
+                                    });
+                                }
+                            }
+                        } else {
+                            if (!teacherAssignments[sub.teacher]) teacherAssignments[sub.teacher] = [];
+                            for (let i = 0; i < sub.periodsPerWeek; i++) {
+                                teacherAssignments[sub.teacher].push({
+                                    classDiv: key, subject: sub.name, teacher: sub.teacher,
+                                    isMultiClass: MULTI_CLASS_SUBJECTS.includes(sub.name),
+                                    sharedGroup: null
+                                });
+                            }
                         }
                     }
                 });
@@ -1514,8 +1558,8 @@ function runTimetableAlgorithm(data) {
     };
 }
 
-function placeAssignment(assignment, timetable, teacherSchedule, data, relaxed = false) {
-    const { classDiv, subject, teacher: assignedTeacherName } = assignment;
+function placeAssignment(assignment, timetable, teacherSchedule, data, relaxed = false, sharedGroups = {}) {
+    const { classDiv, subject, teacher: assignedTeacherName, sharedGroup } = assignment;
     const teacher = data.teachers.find(t => t.name === assignedTeacherName);
     if (!teacher) return false;
 
@@ -1580,8 +1624,20 @@ function placeAssignment(assignment, timetable, teacherSchedule, data, relaxed =
             // Skip max periods check for PET/Art/Music/WE teachers (they handle special scheduling)
             if (!isMultiClass && teacherPeriodsToday >= (teacher.maxPeriodsPerDay || 7)) continue;
 
-            // Place it
-            timetable[classDiv][day][period] = { subject, teacher: teacher.name };
+            // Place it - for shared subjects, record all teachers in the slot
+            if (sharedGroup && sharedGroups[sharedGroup]) {
+                // Multiple teachers share this period - show first teacher, store all
+                const allTeachers = sharedGroups[sharedGroup].map(s => s.teacher).join('/');
+                const allSubjects = sharedGroups[sharedGroup].map(s => s.subject).join('/');
+                timetable[classDiv][day][period] = { subject: allSubjects, teacher: allTeachers };
+                // Mark all shared teachers as busy
+                sharedGroups[sharedGroup].forEach(s => {
+                    if (!teacherSchedule[s.teacher]) return;
+                    teacherSchedule[s.teacher][day][period] = classDiv;
+                });
+            } else {
+                timetable[classDiv][day][period] = { subject, teacher: teacher.name };
+            }
 
             // Track teacher schedule (multi-class stores array)
             if (isMultiClass) {
@@ -1592,7 +1648,7 @@ function placeAssignment(assignment, timetable, teacherSchedule, data, relaxed =
                 } else {
                     teacherSchedule[teacher.name][day][period] = [teacherSchedule[teacher.name][day][period], classDiv];
                 }
-            } else {
+            } else if (!sharedGroup) {
                 teacherSchedule[teacher.name][day][period] = classDiv;
             }
             return true;
