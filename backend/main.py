@@ -83,6 +83,14 @@ def delete_teacher(tid: int, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
+@app.put("/api/teachers/bulk-update-max-periods")
+def bulk_update_max_periods(data: dict, db: Session = Depends(get_db)):
+    max_periods = data.get("maxPeriodsPerDay", 5)
+    db.query(Teacher).update({Teacher.maxPeriodsPerDay: max_periods})
+    db.commit()
+    return {"ok": True, "updated": "all"}
+
+
 # ===== Blocks =====
 @app.get("/api/blocks")
 def get_blocks(db: Session = Depends(get_db)):

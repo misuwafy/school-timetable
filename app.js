@@ -1502,8 +1502,17 @@ function runTimetableAlgorithm(data) {
 
                     if (candidates.length === 0) continue;
 
-                    // Pick: prefer subjects with most remaining, slight randomness
-                    candidates.sort((a, b) => b.left - a.left);
+                    // Pick: prefer subjects whose teacher has fewer periods today (spread load)
+                    candidates.sort((a, b) => {
+                        const aLoad = a.teachers.reduce((sum, t) => {
+                            return sum + (teacherBusy[t] ? Object.keys(teacherBusy[t][day]).filter(p => teacherBusy[t][day][p]).length : 0);
+                        }, 0);
+                        const bLoad = b.teachers.reduce((sum, t) => {
+                            return sum + (teacherBusy[t] ? Object.keys(teacherBusy[t][day]).filter(p => teacherBusy[t][day][p]).length : 0);
+                        }, 0);
+                        if (aLoad !== bLoad) return aLoad - bLoad;
+                        return b.left - a.left;
+                    });
                     const pickIdx = (Math.random() < 0.3 && candidates.length > 1) ? 1 : 0;
                     const pick = candidates[pickIdx];
 
