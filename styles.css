@@ -834,3 +834,9 @@ tr:hover {
         display: none;
     }
 }
+
+
+/* ===== Loading Spinner ===== */
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}

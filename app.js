@@ -650,6 +650,7 @@ function saveClass(editIdx) {
     };
 
     const doSave = async () => {
+        showLoading('Saving class...');
         try {
             const classData = { name: className, divisions: uniqueDivisions, block, classType, classTeacher, subjects };
             if (editIdx !== null) {
@@ -658,10 +659,11 @@ function saveClass(editIdx) {
                 await apiPost('/classes', classData);
             }
             await fetchData();
+            hideLoading();
             closeModal('classModal');
             showToast(`Class ${className} ${editIdx !== null ? 'updated' : 'created'}!`, 'success');
             renderPage('classes');
-        } catch (e) { showToast('Error saving class', 'error'); }
+        } catch (e) { hideLoading(); showToast('Error saving class', 'error'); }
     };
     doSave();
 }
@@ -876,6 +878,7 @@ function saveTeacher(editIdx) {
     const body = { name, maxPeriodsPerDay, isBlockHead, headOfBlock };
 
     const doSave = async () => {
+        showLoading('Saving teacher...');
         try {
             if (editIdx !== null) {
                 await apiPut(`/teachers/${data.teachers[editIdx].id}`, body);
@@ -887,10 +890,11 @@ function saveTeacher(editIdx) {
                 if (block) await apiPut(`/blocks/${block.id}`, { head: name });
             }
             await fetchData();
+            hideLoading();
             closeModal('teacherModal');
             showToast(`Teacher ${name} ${editIdx !== null ? 'updated' : 'added'}!`, 'success');
             renderPage('teachers');
-        } catch (e) { showToast('Error saving teacher', 'error'); }
+        } catch (e) { hideLoading(); showToast('Error saving teacher', 'error'); }
     };
     doSave();
 }
@@ -1017,6 +1021,7 @@ function saveBlock(editIdx) {
     }
 
     const doSave = async () => {
+        showLoading('Saving block...');
         try {
             if (editIdx !== null) {
                 const block = data.blocks[editIdx];
@@ -1034,10 +1039,11 @@ function saveBlock(editIdx) {
                 if (ht) await apiPut(`/teachers/${ht.id}`, { isBlockHead: true, headOfBlock: name });
             }
             await fetchData();
+            hideLoading();
             closeModal('blockModal');
             showToast(`Block ${name} ${editIdx !== null ? 'updated' : 'added'}!`, 'success');
             renderPage('blocks');
-        } catch (e) { showToast('Error saving block', 'error'); }
+        } catch (e) { hideLoading(); showToast('Error saving block', 'error'); }
     };
     doSave();
 }
@@ -1780,6 +1786,29 @@ function showToast(message, type = '') {
     setTimeout(() => toast.remove(), 3000);
 }
 
+function showLoading(msg = 'Saving...') {
+    let el = document.getElementById('loadingOverlay');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'loadingOverlay';
+        el.innerHTML = `
+            <div style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.3);z-index:3000;display:flex;align-items:center;justify-content:center;">
+                <div style="background:white;border-radius:12px;padding:24px 36px;text-align:center;box-shadow:0 10px 30px rgba(0,0,0,0.2);">
+                    <div style="width:36px;height:36px;border:3px solid #e2e8f0;border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px;"></div>
+                    <p id="loadingText" style="font-size:14px;color:var(--text);">${msg}</p>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(el);
+    } else {
+        document.getElementById('loadingText').textContent = msg;
+    }
+}
+
+function hideLoading() {
+    document.getElementById('loadingOverlay')?.remove();
+}
+
 function printTimetable() {
     window.print();
 }
@@ -2130,6 +2159,8 @@ async function handleExcelUpload(event) {
 }
 
 // ===== INIT =====
+showLoading('Loading data...');
 fetchData().then(() => {
+    hideLoading();
     renderPage('dashboard');
 });
