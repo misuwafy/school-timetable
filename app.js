@@ -854,7 +854,7 @@ function renderTeachers() {
                             <tbody id="teacherTableBody">
                                 ${data.teachers.map((t, idx) => {
                                     const total = teacherTotalPeriods[t.name] || 0;
-                                    const maxWeek = (t.maxPeriodsPerDay || 5) * 5;
+                                    const maxWeek = (t.maxPeriodsPerDay || 6) * 5;
                                     const overloaded = total > maxWeek;
                                     return `
                                     <tr data-name="${t.name.toLowerCase()}">
@@ -866,7 +866,7 @@ function renderTeachers() {
                                             ${overloaded ? '<span class="badge badge-danger" style="margin-left:4px;">Overloaded</span>' : ''}
                                         </td>
                                         <td>${t.isBlockHead ? `<span class="badge badge-warning">${t.headOfBlock}</span>` : '-'}</td>
-                                        <td>${t.maxPeriodsPerDay || 5}</td>
+                                        <td>${t.maxPeriodsPerDay || 6}</td>
                                         <td>
                                             <button class="btn btn-sm btn-outline" onclick="editTeacher(${idx})"><i class="fas fa-edit"></i></button>
                                             <button class="btn btn-sm btn-danger" onclick="deleteTeacher(${idx})"><i class="fas fa-trash"></i></button>
@@ -910,7 +910,7 @@ function showAddTeacherModal(editIdx = null) {
                 <div class="form-group">
                     <label>Max Periods per Day</label>
                     <input type="number" class="form-control" id="maxPeriodsDay" 
-                        min="1" max="7" value="${teacher ? (teacher.maxPeriodsPerDay || 5) : 5}">
+                        min="1" max="7" value="${teacher ? (teacher.maxPeriodsPerDay || 6) : 5}">
                 </div>
                 <div class="form-group">
                     <label style="display:flex;align-items:center;gap:8px;">
@@ -1494,7 +1494,7 @@ function runTimetableAlgorithm(data) {
                         if (!r.isMultiClass && teacherBusy[t]) {
                             const periodsToday = Object.keys(teacherBusy[t][day]).filter(p => teacherBusy[t][day][p]).length;
                             const teacherObj = data.teachers.find(tc => tc.name === t);
-                            if (periodsToday >= (teacherObj?.maxPeriodsPerDay || 5)) return false;
+                            if (periodsToday >= (teacherObj?.maxPeriodsPerDay || 6)) return false;
                         }
 
                         return true;
