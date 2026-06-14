@@ -1319,7 +1319,7 @@ function runTimetableAlgorithm(data) {
 
     // Special subjects where teacher can handle multiple divisions simultaneously
     const MULTI_CLASS_SUBJECTS = ['PET', 'Music', 'Art', 'Work Experience'];
-    const MAX_SIMULTANEOUS = 5;
+    // No conflict for these subjects - PET groups 5 classes, others unlimited
 
     // Initialize
     data.teachers.forEach(t => {
@@ -1420,13 +1420,13 @@ function runTimetableAlgorithm(data) {
         if (attempt % 3 === 1) teacherOrder.reverse();
         else if (attempt % 3 === 2) shuffleArray(teacherOrder);
 
-        // Move PET teacher to front of queue (takes 5 classes at a time)
-        const petTeachers = teacherOrder.filter(t => {
+        // Move PET/Art/Music/WE teachers to front (no conflicts, easy to place)
+        const specialTeachers = teacherOrder.filter(t => {
             const assignments = teacherAssignments[t] || [];
-            return assignments.some(a => a.subject === 'PET');
+            return assignments.some(a => MULTI_CLASS_SUBJECTS.includes(a.subject));
         });
-        const normalTeachers = teacherOrder.filter(t => !petTeachers.includes(t));
-        const finalOrder = [...petTeachers, ...normalTeachers];
+        const normalTeachers = teacherOrder.filter(t => !specialTeachers.includes(t));
+        const finalOrder = [...specialTeachers, ...normalTeachers];
 
         let failCount = 0;
 
@@ -1515,7 +1515,8 @@ function placeAssignment(assignment, timetable, teacherSchedule, data, relaxed =
 
     // Special subjects where teacher can handle multiple divisions simultaneously
     const MULTI_CLASS_SUBJECTS = ['PET', 'Music', 'Art', 'Work Experience'];
-    const MAX_SIMULTANEOUS = { 'PET': 5, 'Music': 1, 'Art': 1, 'Work Experience': 1 };
+    // PET: 5 classes per slot, others: unlimited (no conflict for any of these)
+    const MAX_SIMULTANEOUS = { 'PET': 5, 'Music': 999, 'Art': 999, 'Work Experience': 999 };
     const isMultiClass = MULTI_CLASS_SUBJECTS.includes(subject);
 
     const days = [...DAYS];
