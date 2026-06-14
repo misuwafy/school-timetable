@@ -6,9 +6,19 @@ const API_BASE = '/api';
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const PERIODS = [1, 2, 3, 4, 5, 6, 7];
 const PERIOD_TIMES = [
-    '9:00 - 9:45', '9:45 - 10:30', '10:30 - 11:15', '11:15 - 12:00',
-    '12:45 - 1:30', '1:30 - 2:15', '2:15 - 3:00'
+    '9:45 - 10:30', '10:30 - 11:15', '11:25 - 12:05', '12:05 - 12:45',
+    '1:45 - 2:30', '2:30 - 3:10', '3:20 - 4:00'
 ];
+
+const PERIOD_TIMES_FRIDAY = [
+    '9:30 - 10:15', '10:15 - 11:00', '11:10 - 11:50', '11:50 - 12:30',
+    '2:00 - 2:40', '2:40 - 3:20', '3:30 - 4:00'
+];
+
+function getPeriodTime(index, day) {
+    if (day === 'Friday') return PERIOD_TIMES_FRIDAY[index] || '';
+    return PERIOD_TIMES[index] || '';
+}
 
 const ALL_SUBJECTS_8_9 = [
     'First Language', 'Malayalam II', 'English', 'Hindi', 'Maths',
@@ -1605,7 +1615,7 @@ function renderTimetableForClass(classDiv, data) {
                 <thead>
                     <tr>
                         <th class="day-header">Day</th>
-                        ${PERIODS.map((p, i) => `<th>Period ${p}<br><small>${PERIOD_TIMES[i]}</small></th>`).join('')}
+                        ${PERIODS.map((p, i) => `<th>Period ${p}<br><small>${getPeriodTime(i, typeof day !== 'undefined' ? day : 'Monday')}</small></th>`).join('')}
                     </tr>
                 </thead>
                 <tbody>
@@ -1700,7 +1710,7 @@ function renderTimetableForTeacher(teacherName, data) {
                 <thead>
                     <tr>
                         <th class="day-header">Day</th>
-                        ${PERIODS.map((p, i) => `<th>Period ${p}<br><small>${PERIOD_TIMES[i]}</small></th>`).join('')}
+                        ${PERIODS.map((p, i) => `<th>Period ${p}<br><small>${getPeriodTime(i, typeof day !== 'undefined' ? day : 'Monday')}</small></th>`).join('')}
                     </tr>
                 </thead>
                 <tbody>
@@ -1858,7 +1868,7 @@ function renderSchoolForDay(day, data) {
                 <thead>
                     <tr>
                         <th class="day-header">Class</th>
-                        ${PERIODS.map((p, i) => `<th>Period ${p}<br><small>${PERIOD_TIMES[i]}</small></th>`).join('')}
+                        ${PERIODS.map((p, i) => `<th>Period ${p}<br><small>${getPeriodTime(i, typeof day !== 'undefined' ? day : 'Monday')}</small></th>`).join('')}
                     </tr>
                 </thead>
                 <tbody>
@@ -1977,7 +1987,7 @@ function generateClassCSV(classDiv, data) {
     const schedule = data.timetable[classDiv];
     if (!schedule) return '';
     let csv = `Timetable for Class ${classDiv}\n\n`;
-    csv += 'Day,' + PERIODS.map((p, i) => `Period ${p} (${PERIOD_TIMES[i]})`).join(',') + '\n';
+    csv += 'Day,' + PERIODS.map((p, i) => `Period ${p} (${getPeriodTime(i, typeof day !== 'undefined' ? day : 'Monday')})`).join(',') + '\n';
     DAYS.forEach(day => {
         const row = [day];
         PERIODS.forEach(p => {
@@ -1991,7 +2001,7 @@ function generateClassCSV(classDiv, data) {
 
 function generateTeacherCSV(teacherName, data) {
     let csv = `Timetable for ${teacherName}\n\n`;
-    csv += 'Day,' + PERIODS.map((p, i) => `Period ${p} (${PERIOD_TIMES[i]})`).join(',') + '\n';
+    csv += 'Day,' + PERIODS.map((p, i) => `Period ${p} (${getPeriodTime(i, typeof day !== 'undefined' ? day : 'Monday')})`).join(',') + '\n';
 
     DAYS.forEach(day => {
         const row = [day];
@@ -2038,7 +2048,7 @@ function generateBlockCSV(blockName, data) {
 function generateSchoolCSV(day, data) {
     const classDivs = Object.keys(data.timetable).sort();
     let csv = `School Timetable - ${day}\n\n`;
-    csv += 'Class,' + PERIODS.map((p, i) => `Period ${p} (${PERIOD_TIMES[i]})`).join(',') + '\n';
+    csv += 'Class,' + PERIODS.map((p, i) => `Period ${p} (${getPeriodTime(i, typeof day !== 'undefined' ? day : 'Monday')})`).join(',') + '\n';
 
     classDivs.forEach(cd => {
         const schedule = data.timetable[cd];
