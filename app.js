@@ -1507,7 +1507,7 @@ function placeAssignment(assignment, timetable, teacherSchedule, data, relaxed =
 
     // Special subjects where teacher can handle multiple divisions simultaneously
     const MULTI_CLASS_SUBJECTS = ['PET', 'Music', 'Art', 'Work Experience'];
-    const MAX_SIMULTANEOUS = 5; // PET/Music/Art/WE teacher can take 5 classes at same time
+    const MAX_SIMULTANEOUS = 20; // These teachers can take many classes at same time
     const isMultiClass = MULTI_CLASS_SUBJECTS.includes(subject);
 
     const days = [...DAYS];
@@ -1561,7 +1561,8 @@ function placeAssignment(assignment, timetable, teacherSchedule, data, relaxed =
             }
 
             const teacherPeriodsToday = Object.keys(teacherSchedule[teacher.name][day]).length;
-            if (teacherPeriodsToday >= (teacher.maxPeriodsPerDay || 7)) continue;
+            // Skip max periods check for multi-class subjects (PET/Art/Music/WE)
+            if (!isMultiClass && teacherPeriodsToday >= (teacher.maxPeriodsPerDay || 7)) continue;
 
             // Place it
             timetable[classDiv][day][period] = { subject, teacher: teacher.name };
