@@ -1429,6 +1429,7 @@ function runTimetableAlgorithm(data) {
         const finalOrder = [...specialTeachers, ...normalTeachers];
 
         let failCount = 0;
+        const failedDetails = {};
 
         for (const teacherName of finalOrder) {
             const assignments = [...(teacherAssignments[teacherName] || [])];
@@ -1464,6 +1465,8 @@ function runTimetableAlgorithm(data) {
             for (const assignment of unplaced) {
                 if (!placeAssignment(assignment, timetable, teacherSchedule, data, true)) {
                     failCount++;
+                    const key = `${assignment.teacher} (${assignment.subject})`;
+                    failedDetails[key] = (failedDetails[key] || 0) + 1;
                 }
             }
         }
@@ -1502,9 +1505,12 @@ function runTimetableAlgorithm(data) {
         Object.keys(bestTimetable).forEach(key => { timetable[key] = bestTimetable[key]; });
     }
 
+    // Build failure details
+    const failList = Object.entries(failedDetails).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}: ${v} periods`).join('<br>');
+
     return {
         success: false,
-        error: `Could not place ${bestFailCount} period(s) after ${maxAttempts} attempts. Check if any teacher has too many periods across divisions to fit without time conflicts.`
+        error: `Could not place ${bestFailCount} period(s) after ${maxAttempts} attempts.<br><br><strong>Teachers with conflicts:</strong><br>${failList}`
     };
 }
 
