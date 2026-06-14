@@ -2129,11 +2129,31 @@ async function handleExcelUpload(event) {
                 }
 
                 if (periodsNum > 0 && subject.length > 0) {
-                    currentDiv.subjects.push({
-                        name: subject,
-                        teacher: teacher,
-                        periodsPerWeek: periodsNum
-                    });
+                    // Handle slash-separated teachers/subjects (shared periods)
+                    // e.g., Subject: "I st Lang", Teacher: "Sreeja M/Safeer" 
+                    // or Subject: "Sanskrit/Urdu", Teacher: "Sreeja M/Safeer"
+                    const teachers = teacher.split('/').map(t => t.trim()).filter(t => t);
+                    const subjects = subject.split('/').map(s => s.trim()).filter(s => s);
+
+                    if (teachers.length > 1) {
+                        // Multiple teachers sharing this period
+                        // Each teacher gets their own subject entry with same periods
+                        for (let ti = 0; ti < teachers.length; ti++) {
+                            const subName = subjects.length > 1 ? subjects[ti] || subjects[0] : subject;
+                            currentDiv.subjects.push({
+                                name: subName,
+                                teacher: teachers[ti],
+                                periodsPerWeek: periodsNum
+                            });
+                        }
+                    } else {
+                        // Single teacher, normal entry
+                        currentDiv.subjects.push({
+                            name: subject,
+                            teacher: teacher,
+                            periodsPerWeek: periodsNum
+                        });
+                    }
                 }
             }
         }
