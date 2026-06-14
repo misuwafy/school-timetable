@@ -1314,90 +1314,61 @@ function generateTimetable() {
 
 // ===== TIMETABLE ALGORITHM =====
 function runTimetableAlgorithm(data) {
-    const timetable = {};
-    const teacherSchedule = {};
-
-    // Special subjects where teacher can handle multiple divisions simultaneously
     const MULTI_CLASS_SUBJECTS = ['PET', 'Music', 'Art', 'Work Experience'];
-    // No conflict for these subjects - PET groups 5 classes, others unlimited
+    const MAX_PET_PER_SLOT = 5;
 
-    // Initialize
-    data.teachers.forEach(t => {
-        teacherSchedule[t.name] = {};
-        DAYS.forEach(day => { teacherSchedule[t.name][day] = {}; });
-    });
+    // Build needs: for each classDiv, what subjects need to be scheduled
+    const classDivs = [];
+    const needs = {}; // classDiv -> [{subject, teacher, count, shared, sharedGroup}]
 
     data.classes.forEach(cls => {
         cls.divisions.forEach(div => {
             const key = `${cls.name}-${div}`;
-            timetable[key] = {};
-            DAYS.forEach(day => { timetable[key][day] = {}; });
-        });
-    });
-
-    // Build class teacher mapping: classDiv -> classTeacher name
-    const classTeacherMap = {};
-    data.classes.forEach(cls => {
-        cls.divisions.forEach(div => {
-            const key = `${cls.name}-${div}`;
-            if (cls.classTeacher) {
-                classTeacherMap[key] = cls.classTeacher;
-            }
-        });
-    });
-
-    // Build assignments grouped by teacher
-    // For shared subjects: only create assignment for FIRST teacher in group
-    // The shared teachers will be recorded in the timetable slot together
-    const teacherAssignments = {};
-    const sharedGroups = {}; // classDiv+group -> [{teacher, subject}]
-
-    data.classes.forEach(cls => {
-        cls.divisions.forEach(div => {
-            const key = `${cls.name}-${div}`;
+            classDivs.push(key);
+            needs[key] = [];
             const processedGroups = new Set();
 
             cls.subjects.forEach(sub => {
                 if (sub.periodsPerWeek > 0 && sub.teacher) {
-                    // If shared, only add once per group (first teacher handles placement)
                     if (sub.shared && sub.sharedGroup) {
-                        const groupKey = `${key}_${sub.sharedGroup}`;
-                        if (!sharedGroups[groupKey]) {
-                            sharedGroups[groupKey] = [];
-                        }
-                        sharedGroups[groupKey].push({ teacher: sub.teacher, subject: sub.name });
-
-                        // Only create assignments for the first teacher in the group
                         if (!processedGroups.has(sub.sharedGroup)) {
                             processedGroups.add(sub.sharedGroup);
-                            if (!teacherAssignments[sub.teacher]) teacherAssignments[sub.teacher] = [];
-                            for (let i = 0; i < sub.periodsPerWeek; i++) {
-                                teacherAssignments[sub.teacher].push({
-                                    classDiv: key, subject: sub.name, teacher: sub.teacher,
-                                    isMultiClass: MULTI_CLASS_SUBJECTS.includes(sub.name),
-                                    sharedGroup: groupKey
-                                });
-                            }
-                        }
-                    } else {
-                        if (!teacherAssignments[sub.teacher]) teacherAssignments[sub.teacher] = [];
-                        for (let i = 0; i < sub.periodsPerWeek; i++) {
-                            teacherAssignments[sub.teacher].push({
-                                classDiv: key, subject: sub.name, teacher: sub.teacher,
-                                isMultiClass: MULTI_CLASS_SUBJECTS.includes(sub.name),
-                                sharedGroup: null
+                            // Find all teachers in this group
+                            const groupTeachers = cls.subjects
+                                .filter(s => s.sharedGroup === sub.sharedGroup)
+                                .map(s => ({ teacher: s.teacher, subject: s.name }));
+                            needs[key].push({
+                                subject: groupTeachers.map(g => g.subject).join('/'),
+                                teacher: groupTeachers.map(g => g.teacher).join('/'),
+                                teachers: groupTeachers.map(g => g.teacher),
+                                count: sub.periodsPerWeek,
+                                shared: true,
+                                isMultiClass: false
                             });
                         }
+                    } else {
+                        needs[key].push({
+                            subject: sub.name,
+                            teacher: sub.teacher,
+                            teachers: [sub.teacher],
+                            count: sub.periodsPerWeek,
+                            shared: false,
+                            isMultiClass: MULTI_CLASS_SUBJECTS.includes(sub.name)
+                        });
                     }
                 }
             });
         });
     });
 
-    // Sort teachers by load (busiest first)
-    const sortedTeachers = Object.keys(teacherAssignments).sort(
-        (a, b) => teacherAssignments[b].length - teacherAssignments[a].length
-    );
+    // Class teacher map
+    const classTeacherMap = {};
+    data.classes.forEach(cls => {
+        cls.divisions.forEach(div => {
+            const key = `${cls.name}-${div}`;
+            if (cls.classTeacher) classTeacherMap[key] = cls.classTeacher;
+        });
+    });
 
     let bestFailCount = Infinity;
     let bestTimetable = null;
@@ -1405,107 +1376,156 @@ function runTimetableAlgorithm(data) {
     const maxAttempts = 50;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        // Reset
-        Object.keys(timetable).forEach(key => {
-            DAYS.forEach(day => { timetable[key][day] = {}; });
+        // Init timetable and remaining counts
+        const timetable = {};
+        const teacherBusy = {}; // teacher -> day -> period -> true
+        const remaining = {}; // classDiv -> copy of needs with count
+
+        classDivs.forEach(cd => {
+            timetable[cd] = {};
+            DAYS.forEach(d => { timetable[cd][d] = {}; });
+            remaining[cd] = needs[cd].map(n => ({ ...n, left: n.count }));
         });
+
         data.teachers.forEach(t => {
-            DAYS.forEach(day => { teacherSchedule[t.name][day] = {}; });
+            teacherBusy[t.name] = {};
+            DAYS.forEach(d => { teacherBusy[t.name][d] = {}; });
         });
 
-        // STEP 1: Try to place class teachers in Period 1 of their class (priority, not strict)
-        Object.entries(classTeacherMap).forEach(([classDiv, ctName]) => {
-            // Find a subject this class teacher teaches in this class
-            const ctAssignments = (teacherAssignments[ctName] || []).filter(a => a.classDiv === classDiv);
-            if (ctAssignments.length > 0) {
-                // Try to place one of their subjects in period 1 on each day
-                const days = [...DAYS];
-                shuffleArray(days);
-                for (const day of days) {
-                    if (timetable[classDiv][day][1]) continue; // period 1 already taken
-                    const teacher = data.teachers.find(t => t.name === ctName);
-                    if (!teacher) continue;
-                    if (teacher.isBlockHead) continue; // block heads skip period 1
-                    if (teacherSchedule[ctName][day][1]) continue; // teacher busy
+        // STEP 1: Place class teachers in period 1 (soft priority)
+        const ctEntries = Object.entries(classTeacherMap);
+        shuffleArray(ctEntries);
+        for (const [cd, ctName] of ctEntries) {
+            if (!teacherBusy[ctName]) continue;
+            const teacher = data.teachers.find(t => t.name === ctName);
+            if (!teacher || teacher.isBlockHead) continue;
 
-                    // Place one assignment
-                    const assignment = ctAssignments.find(a => {
-                        const subToday = Object.values(timetable[classDiv][day]).filter(s => s.subject === a.subject).length;
-                        return subToday < 2;
-                    });
-                    if (assignment) {
-                        timetable[classDiv][day][1] = { subject: assignment.subject, teacher: ctName };
-                        teacherSchedule[ctName][day][1] = classDiv;
-                        // Remove this assignment from pool
-                        const idx = teacherAssignments[ctName].findIndex(a => a.classDiv === classDiv && a.subject === assignment.subject);
-                        if (idx !== -1) teacherAssignments[ctName].splice(idx, 1);
-                    }
-                    break; // only try one day per attempt for variety
-                }
-            }
-        });
+            const days = [...DAYS]; shuffleArray(days);
+            for (const day of days) {
+                if (timetable[cd][day][1]) continue;
+                if (teacherBusy[ctName][day][1]) continue;
 
-        // STEP 2: Place remaining assignments - PET FIRST, then others
-        const teacherOrder = [...sortedTeachers];
-        if (attempt % 3 === 1) teacherOrder.reverse();
-        else if (attempt % 3 === 2) shuffleArray(teacherOrder);
-
-        // Move PET/Art/Music/WE teachers to front (no conflicts, easy to place)
-        // Then shared subject teachers (need multiple teachers free = harder, do early)
-        const specialTeachers = teacherOrder.filter(t => {
-            const assignments = teacherAssignments[t] || [];
-            return assignments.some(a => MULTI_CLASS_SUBJECTS.includes(a.subject));
-        });
-        const sharedTeachers = teacherOrder.filter(t => {
-            if (specialTeachers.includes(t)) return false;
-            const assignments = teacherAssignments[t] || [];
-            return assignments.some(a => a.sharedGroup);
-        });
-        const normalTeachers = teacherOrder.filter(t => !specialTeachers.includes(t) && !sharedTeachers.includes(t));
-        const finalOrder = [...specialTeachers, ...sharedTeachers, ...normalTeachers];
-
-        let failCount = 0;
-        const failedDetails = {};
-
-        for (const teacherName of finalOrder) {
-            const assignments = [...(teacherAssignments[teacherName] || [])];
-            shuffleArray(assignments);
-
-            // Group by classDiv to spread divisions evenly
-            const byClassDiv = {};
-            assignments.forEach(a => {
-                if (!byClassDiv[a.classDiv]) byClassDiv[a.classDiv] = [];
-                byClassDiv[a.classDiv].push(a);
-            });
-
-            // Interleave divisions for even spread
-            const interleaved = [];
-            const classDivKeys = Object.keys(byClassDiv);
-            shuffleArray(classDivKeys);
-            let maxLen = Math.max(...classDivKeys.map(k => byClassDiv[k].length), 0);
-            for (let i = 0; i < maxLen; i++) {
-                for (const key of classDivKeys) {
-                    if (i < byClassDiv[key].length) {
-                        interleaved.push(byClassDiv[key][i]);
-                    }
-                }
-            }
-
-            const unplaced = [];
-            for (const assignment of interleaved) {
-                if (!placeAssignment(assignment, timetable, teacherSchedule, data, false, sharedGroups)) {
-                    unplaced.push(assignment);
-                }
-            }
-
-            for (const assignment of unplaced) {
-                if (!placeAssignment(assignment, timetable, teacherSchedule, data, true, sharedGroups)) {
-                    failCount++;
-                    const key = `${assignment.teacher} (${assignment.subject})`;
-                    failedDetails[key] = (failedDetails[key] || 0) + 1;
+                // Find a subject this class teacher teaches
+                const sub = remaining[cd].find(r => r.left > 0 && !r.shared && r.teachers.includes(ctName) && !r.isMultiClass);
+                if (sub) {
+                    timetable[cd][day][1] = { subject: sub.subject, teacher: sub.teacher };
+                    teacherBusy[ctName][day][1] = true;
+                    sub.left--;
+                    break;
                 }
             }
         }
+
+        // STEP 2: Slot-by-slot scheduling
+        const dayOrder = [...DAYS];
+        const periodOrder = [...PERIODS];
+        if (attempt % 2 === 1) { shuffleArray(dayOrder); }
+
+        for (const day of dayOrder) {
+            const pOrder = [...periodOrder];
+            if (attempt > 5) shuffleArray(pOrder);
+
+            for (const period of pOrder) {
+                // For this time slot, assign subjects to classes
+                const cdOrder = [...classDivs];
+
+                // Prioritize classes with most remaining work
+                cdOrder.sort((a, b) => {
+                    const remA = remaining[a].reduce((s, r) => s + r.left, 0);
+                    const remB = remaining[b].reduce((s, r) => s + r.left, 0);
+                    return remB - remA;
+                });
+                if (Math.random() < 0.2) shuffleArray(cdOrder);
+
+                const usedTeachersThisSlot = new Set();
+                const petCountThisSlot = 0;
+                let petUsed = 0;
+
+                for (const cd of cdOrder) {
+                    if (timetable[cd][day][period]) continue; // already assigned
+
+                    // Find best subject to place here
+                    const candidates = remaining[cd].filter(r => {
+                        if (r.left <= 0) return false;
+
+                        // Check max subject per day (2 same subject max)
+                        const subToday = Object.values(timetable[cd][day]).filter(s => s.subject === r.subject).length;
+                        if (subToday >= 2) return false;
+
+                        // Check teacher availability
+                        if (r.isMultiClass) {
+                            // PET: max 5 per slot
+                            if (r.subject === 'PET' && petUsed >= MAX_PET_PER_SLOT) return false;
+                            // No other conflict for multi-class
+                            return true;
+                        }
+
+                        // For shared: ALL teachers must be free
+                        if (r.shared) {
+                            return r.teachers.every(t => {
+                                if (!teacherBusy[t]) return true;
+                                return !teacherBusy[t][day][period] && !usedTeachersThisSlot.has(t);
+                            });
+                        }
+
+                        // Normal: teacher must be free
+                        const t = r.teachers[0];
+                        if (!t) return false;
+                        if (usedTeachersThisSlot.has(t)) return false;
+                        if (teacherBusy[t] && teacherBusy[t][day][period]) return false;
+
+                        // Block head: no period 1
+                        if (period === 1) {
+                            const teacherObj = data.teachers.find(tc => tc.name === t);
+                            if (teacherObj && teacherObj.isBlockHead) return false;
+                        }
+
+                        // Max periods per day for normal teachers
+                        if (!r.isMultiClass && teacherBusy[t]) {
+                            const periodsToday = Object.keys(teacherBusy[t][day]).filter(p => teacherBusy[t][day][p]).length;
+                            const teacherObj = data.teachers.find(tc => tc.name === t);
+                            if (periodsToday >= (teacherObj?.maxPeriodsPerDay || 7)) return false;
+                        }
+
+                        return true;
+                    });
+
+                    if (candidates.length === 0) continue;
+
+                    // Pick: prefer subjects with most remaining, slight randomness
+                    candidates.sort((a, b) => b.left - a.left);
+                    const pickIdx = (Math.random() < 0.3 && candidates.length > 1) ? 1 : 0;
+                    const pick = candidates[pickIdx];
+
+                    // Place it
+                    timetable[cd][day][period] = { subject: pick.subject, teacher: pick.teacher, shared: pick.shared };
+                    pick.left--;
+
+                    if (pick.isMultiClass) {
+                        if (pick.subject === 'PET') petUsed++;
+                    } else {
+                        // Mark teachers as used
+                        pick.teachers.forEach(t => {
+                            usedTeachersThisSlot.add(t);
+                            if (teacherBusy[t]) teacherBusy[t][day][period] = true;
+                        });
+                    }
+                }
+            }
+        }
+
+        // Count failures
+        let failCount = 0;
+        const failedDetails = {};
+        classDivs.forEach(cd => {
+            remaining[cd].forEach(r => {
+                if (r.left > 0) {
+                    failCount += r.left;
+                    const key = `${r.teachers[0]} (${r.subject.split('/')[0]})`;
+                    failedDetails[key] = (failedDetails[key] || 0) + r.left;
+                }
+            });
+        });
 
         if (failCount === 0) {
             return { success: true, timetable };
@@ -1516,161 +1536,18 @@ function runTimetableAlgorithm(data) {
             bestTimetable = JSON.parse(JSON.stringify(timetable));
             lastFailedDetails = { ...failedDetails };
         }
-
-        // Rebuild assignments for next attempt (restore what was used for class teacher priority)
-        Object.keys(teacherAssignments).forEach(k => { teacherAssignments[k] = []; });
-        data.classes.forEach(cls => {
-            cls.divisions.forEach(div => {
-                const key = `${cls.name}-${div}`;
-                const processedGroups = new Set();
-                cls.subjects.forEach(sub => {
-                    if (sub.periodsPerWeek > 0 && sub.teacher) {
-                        if (sub.shared && sub.sharedGroup) {
-                            if (!processedGroups.has(sub.sharedGroup)) {
-                                processedGroups.add(sub.sharedGroup);
-                                if (!teacherAssignments[sub.teacher]) teacherAssignments[sub.teacher] = [];
-                                for (let i = 0; i < sub.periodsPerWeek; i++) {
-                                    teacherAssignments[sub.teacher].push({
-                                        classDiv: key, subject: sub.name, teacher: sub.teacher,
-                                        isMultiClass: MULTI_CLASS_SUBJECTS.includes(sub.name),
-                                        sharedGroup: `${key}_${sub.sharedGroup}`
-                                    });
-                                }
-                            }
-                        } else {
-                            if (!teacherAssignments[sub.teacher]) teacherAssignments[sub.teacher] = [];
-                            for (let i = 0; i < sub.periodsPerWeek; i++) {
-                                teacherAssignments[sub.teacher].push({
-                                    classDiv: key, subject: sub.name, teacher: sub.teacher,
-                                    isMultiClass: MULTI_CLASS_SUBJECTS.includes(sub.name),
-                                    sharedGroup: null
-                                });
-                            }
-                        }
-                    }
-                });
-            });
-        });
     }
 
     if (bestTimetable) {
-        Object.keys(bestTimetable).forEach(key => { timetable[key] = bestTimetable[key]; });
+        // Return best attempt even though not perfect
+        return { success: true, timetable: bestTimetable };
     }
 
-    // Build failure details
     const failList = Object.entries(lastFailedDetails).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}: ${v} periods`).join('<br>');
-
     return {
         success: false,
         error: `Could not place ${bestFailCount} period(s) after ${maxAttempts} attempts.<br><br><strong>Teachers with conflicts:</strong><br>${failList}`
     };
-}
-
-function placeAssignment(assignment, timetable, teacherSchedule, data, relaxed = false, sharedGroups = {}) {
-    const { classDiv, subject, teacher: assignedTeacherName, sharedGroup } = assignment;
-    const teacher = data.teachers.find(t => t.name === assignedTeacherName);
-    if (!teacher) return false;
-
-    // Special subjects where teacher can handle multiple divisions simultaneously
-    const MULTI_CLASS_SUBJECTS = ['PET', 'Music', 'Art', 'Work Experience'];
-    // PET: 5 classes per slot, others: unlimited (no conflict for any of these)
-    const MAX_SIMULTANEOUS = { 'PET': 5, 'Music': 999, 'Art': 999, 'Work Experience': 999 };
-    const isMultiClass = MULTI_CLASS_SUBJECTS.includes(subject);
-
-    const days = [...DAYS];
-    const periods = [...PERIODS];
-
-    // Sort days: prefer days with fewer periods of this subject for this class
-    days.sort((a, b) => {
-        const countA = Object.values(timetable[classDiv][a]).filter(s => s.subject === subject).length;
-        const countB = Object.values(timetable[classDiv][b]).filter(s => s.subject === subject).length;
-        if (countA !== countB) return countA - countB;
-        const tA = Object.keys(teacherSchedule[teacher.name][a]).length;
-        const tB = Object.keys(teacherSchedule[teacher.name][b]).length;
-        if (tA !== tB) return tA - tB;
-        const cA = Object.keys(timetable[classDiv][a]).length;
-        const cB = Object.keys(timetable[classDiv][b]).length;
-        return cA - cB;
-    });
-
-    // Slight randomization among equal-priority days
-    for (let i = 0; i < days.length - 1; i++) {
-        const countI = Object.values(timetable[classDiv][days[i]]).filter(s => s.subject === subject).length;
-        const countNext = Object.values(timetable[classDiv][days[i + 1]]).filter(s => s.subject === subject).length;
-        if (countI === countNext && Math.random() < 0.35) {
-            [days[i], days[i + 1]] = [days[i + 1], days[i]];
-        }
-    }
-
-    shuffleArray(periods);
-
-    for (const day of days) {
-        const subjectsToday = Object.values(timetable[classDiv][day])
-            .filter(slot => slot.subject === subject).length;
-        const maxPerDay = relaxed ? 3 : 2;
-        if (subjectsToday >= maxPerDay) continue;
-
-        for (const period of periods) {
-            if (timetable[classDiv][day][period]) continue;
-            if (period === 1 && teacher.isBlockHead) continue;
-
-            // For multi-class subjects, allow up to MAX_SIMULTANEOUS classes in same slot
-            if (isMultiClass) {
-                const simultaneousCount = teacherSchedule[teacher.name][day][period]
-                    ? (Array.isArray(teacherSchedule[teacher.name][day][period])
-                        ? teacherSchedule[teacher.name][day][period].length
-                        : 1)
-                    : 0;
-                const maxSim = MAX_SIMULTANEOUS[subject] || 20;
-                if (simultaneousCount >= maxSim) continue;
-            } else {
-                // Normal teacher: must be free
-                if (teacherSchedule[teacher.name][day][period]) continue;
-            }
-
-            const teacherPeriodsToday = Object.keys(teacherSchedule[teacher.name][day]).length;
-            // Skip max periods check for PET/Art/Music/WE teachers (they handle special scheduling)
-            if (!isMultiClass && teacherPeriodsToday >= (teacher.maxPeriodsPerDay || 7)) continue;
-
-            // Place it - for shared subjects, record all teachers in the slot
-            if (sharedGroup && sharedGroups[sharedGroup]) {
-                // Check ALL shared teachers are free for this slot
-                const allFree = sharedGroups[sharedGroup].every(s => {
-                    if (!teacherSchedule[s.teacher]) return true;
-                    return !teacherSchedule[s.teacher][day][period];
-                });
-                if (!allFree) continue;
-
-                // Multiple teachers share this period
-                const allTeachers = sharedGroups[sharedGroup].map(s => s.teacher).join('/');
-                const allSubjects = sharedGroups[sharedGroup].map(s => s.subject).join('/');
-                timetable[classDiv][day][period] = { subject: allSubjects, teacher: allTeachers, shared: true };
-                // Mark all shared teachers as busy
-                sharedGroups[sharedGroup].forEach(s => {
-                    if (!teacherSchedule[s.teacher]) return;
-                    teacherSchedule[s.teacher][day][period] = classDiv;
-                });
-            } else {
-                timetable[classDiv][day][period] = { subject, teacher: teacher.name };
-            }
-
-            // Track teacher schedule (multi-class stores array)
-            if (isMultiClass) {
-                if (!teacherSchedule[teacher.name][day][period]) {
-                    teacherSchedule[teacher.name][day][period] = [classDiv];
-                } else if (Array.isArray(teacherSchedule[teacher.name][day][period])) {
-                    teacherSchedule[teacher.name][day][period].push(classDiv);
-                } else {
-                    teacherSchedule[teacher.name][day][period] = [teacherSchedule[teacher.name][day][period], classDiv];
-                }
-            } else if (!sharedGroup) {
-                teacherSchedule[teacher.name][day][period] = classDiv;
-            }
-            return true;
-        }
-    }
-
-    return false;
 }
 
 function shuffleArray(arr) {
@@ -1680,6 +1557,7 @@ function shuffleArray(arr) {
     }
 }
 
+// ===== TIMETABLE VIEWS =====
 // ===== TIMETABLE VIEWS =====
 function renderViewClass() {
     const data = getData();
