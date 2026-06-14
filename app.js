@@ -1402,7 +1402,7 @@ function runTimetableAlgorithm(data) {
     let bestFailCount = Infinity;
     let bestTimetable = null;
     let lastFailedDetails = {};
-    const maxAttempts = 30;
+    const maxAttempts = 50;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
         // Reset
@@ -1628,10 +1628,17 @@ function placeAssignment(assignment, timetable, teacherSchedule, data, relaxed =
 
             // Place it - for shared subjects, record all teachers in the slot
             if (sharedGroup && sharedGroups[sharedGroup]) {
-                // Multiple teachers share this period - show first teacher, store all
+                // Check ALL shared teachers are free for this slot
+                const allFree = sharedGroups[sharedGroup].every(s => {
+                    if (!teacherSchedule[s.teacher]) return true;
+                    return !teacherSchedule[s.teacher][day][period];
+                });
+                if (!allFree) continue;
+
+                // Multiple teachers share this period
                 const allTeachers = sharedGroups[sharedGroup].map(s => s.teacher).join('/');
                 const allSubjects = sharedGroups[sharedGroup].map(s => s.subject).join('/');
-                timetable[classDiv][day][period] = { subject: allSubjects, teacher: allTeachers };
+                timetable[classDiv][day][period] = { subject: allSubjects, teacher: allTeachers, shared: true };
                 // Mark all shared teachers as busy
                 sharedGroups[sharedGroup].forEach(s => {
                     if (!teacherSchedule[s.teacher]) return;
