@@ -300,6 +300,18 @@ function renderClasses() {
                         <p>Create your first class to get started with the timetable.</p>
                     </div>
                 ` : `
+                    <div class="filter-bar" style="margin-bottom:12px;">
+                        <input type="text" class="form-control" id="classSearch" placeholder="Search division, block..." 
+                            style="max-width:200px;" oninput="filterClasses()">
+                        <select id="classClassFilter" class="form-control" style="width:auto;padding:6px 12px;font-size:13px;" onchange="filterClasses()">
+                            <option value="">All Classes</option>
+                            ${uniqueClasses.map(c => `<option value="${c}">Class ${c}</option>`).join('')}
+                        </select>
+                        <select id="classBlockFilter" class="form-control" style="width:auto;padding:6px 12px;font-size:13px;" onchange="filterClasses()">
+                            <option value="">All Blocks</option>
+                            ${uniqueBlocks.map(b => `<option value="${b}">${b}</option>`).join('')}
+                        </select>
+                    </div>
                     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
                         <span style="font-weight:600;font-size:13px;color:var(--text-light);">Bulk Delete:</span>
                         <select id="bulkDeleteClass" class="form-control" style="width:auto;padding:6px 12px;font-size:13px;">
@@ -325,9 +337,9 @@ function renderClasses() {
                                     <th>Actions</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody id="classTableBody">
                                 ${data.classes.map((c, idx) => `
-                                    <tr>
+                                    <tr data-name="${c.divisions[0]?.toLowerCase() || ''}" data-block="${c.block || ''}" data-class="${c.name}">
                                         <td><strong>Class ${c.name}</strong></td>
                                         <td>${c.divisions.map(d => `<span class="chip">${d}</span>`).join('')}</td>
                                         <td><span class="badge badge-primary">${c.block || '-'}</span></td>
@@ -785,7 +797,7 @@ function renderTeachers() {
     return `
         <div class="panel">
             <div class="panel-header">
-                <h2>Teachers</h2>
+                <h2>Teachers (${data.teachers.length})</h2>
                 <button class="btn btn-primary" onclick="showAddTeacherModal()"><i class="fas fa-plus"></i> Add Teacher</button>
             </div>
             <div class="panel-body">
@@ -796,7 +808,11 @@ function renderTeachers() {
                         <p>Add teachers with their name and settings.</p>
                     </div>
                 ` : `
-                    <div class="table-container">
+                    <div class="filter-bar" style="margin-bottom:16px;">
+                        <input type="text" class="form-control" id="teacherSearch" placeholder="Search teacher name..." 
+                            style="max-width:250px;" oninput="filterTeachers()">
+                    </div>
+                    <div class="table-container" id="teacherTableContainer">
                         <table>
                             <thead>
                                 <tr>
@@ -808,13 +824,13 @@ function renderTeachers() {
                                     <th>Actions</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody id="teacherTableBody">
                                 ${data.teachers.map((t, idx) => {
                                     const total = teacherTotalPeriods[t.name] || 0;
                                     const maxWeek = (t.maxPeriodsPerDay || 7) * 5;
                                     const overloaded = total > maxWeek;
                                     return `
-                                    <tr>
+                                    <tr data-name="${t.name.toLowerCase()}">
                                         <td><strong>${t.name}</strong></td>
                                         <td>${t.subjects && t.subjects.length > 0 ? t.subjects.map(s => `<span class="chip">${s}</span>`).join('') : '<span style="color:var(--text-light);font-size:12px;">Not yet assigned</span>'}</td>
                                         <td>
@@ -961,16 +977,20 @@ function renderBlocks() {
                         <p>Add physical blocks/buildings of your school.</p>
                     </div>
                 ` : `
+                    <div class="filter-bar" style="margin-bottom:16px;">
+                        <input type="text" class="form-control" id="blockSearch" placeholder="Search block name..." 
+                            style="max-width:250px;" oninput="filterBlocks()">
+                    </div>
                     <div class="table-container">
                         <table>
                             <thead>
                                 <tr><th>Block Name</th><th>Head</th><th>Description</th><th>Classes Assigned</th><th>Actions</th></tr>
                             </thead>
-                            <tbody>
+                            <tbody id="blockTableBody">
                                 ${data.blocks.map((b, idx) => {
                                     const assignedClasses = data.classes.filter(c => c.block === b.name);
                                     return `
-                                        <tr>
+                                        <tr data-name="${b.name.toLowerCase()}">
                                             <td><strong>${b.name}</strong></td>
                                             <td>${b.head ? `<span class="badge badge-warning"><i class="fas fa-crown"></i> ${b.head}</span>` : '<span style="color:var(--text-light);">Not assigned</span>'}</td>
                                             <td>${b.description || '-'}</td>
@@ -1969,6 +1989,41 @@ function downloadCSV(csv, filename) {
     a.click();
     URL.revokeObjectURL(url);
     showToast('Exported successfully!', 'success');
+}
+
+// ===== SEARCH & FILTER =====
+function filterTeachers() {
+    const search = (document.getElementById('teacherSearch')?.value || '').toLowerCase();
+    const rows = document.querySelectorAll('#teacherTableBody tr');
+    rows.forEach(row => {
+        const name = row.getAttribute('data-name') || '';
+        row.style.display = name.includes(search) ? '' : 'none';
+    });
+}
+
+function filterClasses() {
+    const search = (document.getElementById('classSearch')?.value || '').toLowerCase();
+    const blockFilter = document.getElementById('classBlockFilter')?.value || '';
+    const classFilter = document.getElementById('classClassFilter')?.value || '';
+    const rows = document.querySelectorAll('#classTableBody tr');
+    rows.forEach(row => {
+        const name = row.getAttribute('data-name') || '';
+        const block = row.getAttribute('data-block') || '';
+        const cls = row.getAttribute('data-class') || '';
+        const matchSearch = !search || name.includes(search) || block.includes(search);
+        const matchBlock = !blockFilter || block === blockFilter;
+        const matchClass = !classFilter || cls === classFilter;
+        row.style.display = (matchSearch && matchBlock && matchClass) ? '' : 'none';
+    });
+}
+
+function filterBlocks() {
+    const search = (document.getElementById('blockSearch')?.value || '').toLowerCase();
+    const rows = document.querySelectorAll('#blockTableBody tr');
+    rows.forEach(row => {
+        const name = row.getAttribute('data-name') || '';
+        row.style.display = name.includes(search) ? '' : 'none';
+    });
 }
 
 // ===== EXCEL UPLOAD =====
