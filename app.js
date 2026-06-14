@@ -1415,14 +1415,22 @@ function runTimetableAlgorithm(data) {
             }
         });
 
-        // STEP 2: Place remaining assignments
+        // STEP 2: Place remaining assignments - PET FIRST, then others
         const teacherOrder = [...sortedTeachers];
         if (attempt % 3 === 1) teacherOrder.reverse();
         else if (attempt % 3 === 2) shuffleArray(teacherOrder);
 
+        // Move PET teacher to front of queue (takes 5 classes at a time)
+        const petTeachers = teacherOrder.filter(t => {
+            const assignments = teacherAssignments[t] || [];
+            return assignments.some(a => a.subject === 'PET');
+        });
+        const normalTeachers = teacherOrder.filter(t => !petTeachers.includes(t));
+        const finalOrder = [...petTeachers, ...normalTeachers];
+
         let failCount = 0;
 
-        for (const teacherName of teacherOrder) {
+        for (const teacherName of finalOrder) {
             const assignments = [...(teacherAssignments[teacherName] || [])];
             shuffleArray(assignments);
 
@@ -1507,7 +1515,7 @@ function placeAssignment(assignment, timetable, teacherSchedule, data, relaxed =
 
     // Special subjects where teacher can handle multiple divisions simultaneously
     const MULTI_CLASS_SUBJECTS = ['PET', 'Music', 'Art', 'Work Experience'];
-    const MAX_SIMULTANEOUS = 20; // These teachers can take many classes at same time
+    const MAX_SIMULTANEOUS = { 'PET': 5, 'Music': 1, 'Art': 1, 'Work Experience': 1 };
     const isMultiClass = MULTI_CLASS_SUBJECTS.includes(subject);
 
     const days = [...DAYS];
@@ -1554,14 +1562,15 @@ function placeAssignment(assignment, timetable, teacherSchedule, data, relaxed =
                         ? teacherSchedule[teacher.name][day][period].length
                         : 1)
                     : 0;
-                if (simultaneousCount >= MAX_SIMULTANEOUS) continue;
+                const maxSim = MAX_SIMULTANEOUS[subject] || 20;
+                if (simultaneousCount >= maxSim) continue;
             } else {
                 // Normal teacher: must be free
                 if (teacherSchedule[teacher.name][day][period]) continue;
             }
 
             const teacherPeriodsToday = Object.keys(teacherSchedule[teacher.name][day]).length;
-            // Skip max periods check for multi-class subjects (PET/Art/Music/WE)
+            // Skip max periods check for PET/Art/Music/WE teachers (they handle special scheduling)
             if (!isMultiClass && teacherPeriodsToday >= (teacher.maxPeriodsPerDay || 7)) continue;
 
             // Place it
