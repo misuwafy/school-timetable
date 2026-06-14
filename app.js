@@ -620,36 +620,34 @@ function saveClass(editIdx) {
     // Validate total periods
     const totalPeriods = subjects.reduce((s, sub) => s + sub.periodsPerWeek, 0);
     const isClass8or9 = (className === '8' || className === '9');
-    const validTotals8_9 = [31, 32, 35]; // 31+4special=35, 32+3special=35, or 35 if manually entered all
 
-    if (isClass8or9 && !validTotals8_9.includes(totalPeriods)) {
-        showToast(`Class 8/9: total must be 31 or 32 (special subjects auto-added). Current: ${totalPeriods}`, 'warning');
-        return;
-    }
     if (!isClass8or9 && totalPeriods !== 35) {
         showToast(`Total periods must be 35 (5 days × 7 periods). Current: ${totalPeriods}`, 'warning');
         return;
     }
 
-    // Auto-add special subjects for class 8 & 9
-    if (isClass8or9 && (totalPeriods === 31 || totalPeriods === 32)) {
+    // Auto-add special subjects for class 8 & 9 only if missing and total < 35
+    if (isClass8or9 && totalPeriods < 35) {
         const specialSubjects = [
             { name: 'PET', periodsPerWeek: 1, teacher: 'Shajir' },
             { name: 'Work Experience', periodsPerWeek: 1, teacher: 'Sheeba' },
             { name: 'Music', periodsPerWeek: 1, teacher: 'Divya' },
             { name: 'Art', periodsPerWeek: 1, teacher: 'Udayesh' }
         ];
-        specialSubjects.forEach(sp => {
+        for (const sp of specialSubjects) {
+            const currentTotal = subjects.reduce((s, sub) => s + sub.periodsPerWeek, 0);
+            if (currentTotal >= 35) break;
             if (!subjects.find(s => s.name === sp.name)) {
                 subjects.push(sp);
             }
-        });
-        // Verify final total is 35
-        const finalTotal = subjects.reduce((s, sub) => s + sub.periodsPerWeek, 0);
-        if (finalTotal !== 35) {
-            showToast(`After adding special subjects, total is ${finalTotal} (must be 35). Adjust periods.`, 'warning');
-            return;
         }
+    }
+
+    // Final validation
+    const finalTotal = subjects.reduce((s, sub) => s + sub.periodsPerWeek, 0);
+    if (finalTotal !== 35) {
+        showToast(`Total periods must be 35. Current: ${finalTotal}`, 'warning');
+        return;
     }
 
     const classObj = {
@@ -2051,25 +2049,26 @@ async function handleExcelUpload(event) {
         classes.forEach(cls => {
             const total = cls.subjects.reduce((s, sub) => s + sub.periodsPerWeek, 0);
             const isClass8or9 = (cls.name === '8' || cls.name === '9');
-            const validTotals = isClass8or9 ? [31, 32, 35] : [35];
+            const validTotals = isClass8or9 ? [31, 32, 33, 34, 35] : [35];
 
             if (!validTotals.includes(total)) {
-                errors.push(`Class ${cls.name}-${cls.divisions[0]}: total = ${total} (must be ${isClass8or9 ? '31 or 32' : '35'})`);
+                errors.push(`Class ${cls.name}-${cls.divisions[0]}: total = ${total} (must be ${isClass8or9 ? '≤35' : '35'})`);
             }
 
-            // Auto-add PET, Music, Art, Work Experience for class 8/9 if total is 31 or 32
-            if (isClass8or9 && (total === 31 || total === 32)) {
-                if (!cls.subjects.find(s => s.name === 'PET')) {
-                    cls.subjects.push({ name: 'PET', periodsPerWeek: 1, teacher: 'Shajir' });
-                }
-                if (!cls.subjects.find(s => s.name === 'Work Experience')) {
-                    cls.subjects.push({ name: 'Work Experience', periodsPerWeek: 1, teacher: 'Sheeba' });
-                }
-                if (!cls.subjects.find(s => s.name === 'Music')) {
-                    cls.subjects.push({ name: 'Music', periodsPerWeek: 1, teacher: 'Divya' });
-                }
-                if (!cls.subjects.find(s => s.name === 'Art')) {
-                    cls.subjects.push({ name: 'Art', periodsPerWeek: 1, teacher: 'Udayesh' });
+            // Auto-add special subjects for class 8/9 only if missing and total < 35
+            if (isClass8or9 && total < 35) {
+                const specials = [
+                    { name: 'PET', periodsPerWeek: 1, teacher: 'Shajir' },
+                    { name: 'Work Experience', periodsPerWeek: 1, teacher: 'Sheeba' },
+                    { name: 'Music', periodsPerWeek: 1, teacher: 'Divya' },
+                    { name: 'Art', periodsPerWeek: 1, teacher: 'Udayesh' }
+                ];
+                for (const sp of specials) {
+                    const curTotal = cls.subjects.reduce((s, sub) => s + sub.periodsPerWeek, 0);
+                    if (curTotal >= 35) break;
+                    if (!cls.subjects.find(s => s.name === sp.name)) {
+                        cls.subjects.push(sp);
+                    }
                 }
             }
 
