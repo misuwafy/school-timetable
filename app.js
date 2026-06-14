@@ -16,6 +16,18 @@ const ALL_SUBJECTS_8_9 = [
     'PET', 'Music', 'Work Experience', 'Art'
 ];
 
+const ALL_SUBJECTS_8 = [
+    'First Language', 'Malayalam II', 'English', 'Hindi', 'Maths',
+    'Social Science', 'Chemistry', 'Physics', 'Biology', 'IT',
+    'PET', 'Music', 'Art'
+];
+
+const ALL_SUBJECTS_9 = [
+    'First Language', 'Malayalam II', 'English', 'Hindi', 'Maths',
+    'Social Science', 'Chemistry', 'Physics', 'Biology', 'IT',
+    'PET', 'Art', 'Work Experience'
+];
+
 const ALL_SUBJECTS_10 = [
     'First Language', 'Malayalam II', 'English', 'Hindi', 'Maths',
     'Social Science', 'Chemistry', 'Physics', 'Biology', 'IT'
@@ -476,7 +488,11 @@ function showAddClassModal(editIdx = null) {
 }
 
 function renderSubjectEntries(cls, classNum) {
-    const subjects = classNum === 10 ? ALL_SUBJECTS_10 : ALL_SUBJECTS_8_9;
+    let subjects;
+    if (classNum === 10) subjects = ALL_SUBJECTS_10;
+    else if (classNum === 8) subjects = ALL_SUBJECTS_8;
+    else subjects = ALL_SUBJECTS_9;
+
     const defaultPeriods = {
         'PET': 1, 'Music': 1, 'Work Experience': 1, 'Art': 1
     };
@@ -628,12 +644,19 @@ function saveClass(editIdx) {
 
     // Auto-add special subjects for class 8 & 9 only if missing and total < 35
     if (isClass8or9 && totalPeriods < 35) {
-        const specialSubjects = [
-            { name: 'PET', periodsPerWeek: 1, teacher: 'Shajir' },
-            { name: 'Work Experience', periodsPerWeek: 1, teacher: 'Sheeba' },
-            { name: 'Music', periodsPerWeek: 1, teacher: 'Divya' },
-            { name: 'Art', periodsPerWeek: 1, teacher: 'Udayesh' }
-        ];
+        const specialSubjects = [];
+        // PET: class 8 and 9
+        specialSubjects.push({ name: 'PET', periodsPerWeek: 1, teacher: 'Shajir' });
+        // Music: class 8 only
+        if (className === '8') {
+            specialSubjects.push({ name: 'Music', periodsPerWeek: 1, teacher: 'Divya' });
+        }
+        // Art: class 8 and 9
+        specialSubjects.push({ name: 'Art', periodsPerWeek: 1, teacher: 'Udayesh' });
+        // Work Experience: class 9 only
+        if (className === '9') {
+            specialSubjects.push({ name: 'Work Experience', periodsPerWeek: 1, teacher: 'Sheeba' });
+        }
         for (const sp of specialSubjects) {
             const currentTotal = subjects.reduce((s, sub) => s + sub.periodsPerWeek, 0);
             if (currentTotal >= 35) break;
@@ -2057,12 +2080,19 @@ async function handleExcelUpload(event) {
 
             // Auto-add special subjects for class 8/9 only if missing and total < 35
             if (isClass8or9 && total < 35) {
-                const specials = [
-                    { name: 'PET', periodsPerWeek: 1, teacher: 'Shajir' },
-                    { name: 'Work Experience', periodsPerWeek: 1, teacher: 'Sheeba' },
-                    { name: 'Music', periodsPerWeek: 1, teacher: 'Divya' },
-                    { name: 'Art', periodsPerWeek: 1, teacher: 'Udayesh' }
-                ];
+                const specials = [];
+                // PET: class 8 and 9
+                specials.push({ name: 'PET', periodsPerWeek: 1, teacher: 'Shajir' });
+                // Music: class 8 only
+                if (cls.name === '8') {
+                    specials.push({ name: 'Music', periodsPerWeek: 1, teacher: 'Divya' });
+                }
+                // Art: class 8 and 9
+                specials.push({ name: 'Art', periodsPerWeek: 1, teacher: 'Udayesh' });
+                // Work Experience: class 9 only
+                if (cls.name === '9') {
+                    specials.push({ name: 'Work Experience', periodsPerWeek: 1, teacher: 'Sheeba' });
+                }
                 for (const sp of specials) {
                     const curTotal = cls.subjects.reduce((s, sub) => s + sub.periodsPerWeek, 0);
                     if (curTotal >= 35) break;
