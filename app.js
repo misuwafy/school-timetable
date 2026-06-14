@@ -1431,6 +1431,11 @@ function placeAssignment(assignment, timetable, teacherSchedule, data, relaxed =
     const teacher = data.teachers.find(t => t.name === assignedTeacherName);
     if (!teacher) return false;
 
+    // Special subjects where teacher can handle multiple divisions simultaneously
+    const MULTI_CLASS_SUBJECTS = ['PET', 'Music', 'Art', 'Work Experience'];
+    const MAX_SIMULTANEOUS = 5; // PET/Music/Art/WE teacher can take 5 classes at same time
+    const isMultiClass = MULTI_CLASS_SUBJECTS.includes(subject);
+
     const days = [...DAYS];
     const periods = [...PERIODS];
 
@@ -1439,11 +1444,9 @@ function placeAssignment(assignment, timetable, teacherSchedule, data, relaxed =
         const countA = Object.values(timetable[classDiv][a]).filter(s => s.subject === subject).length;
         const countB = Object.values(timetable[classDiv][b]).filter(s => s.subject === subject).length;
         if (countA !== countB) return countA - countB;
-        // Then prefer days where teacher has fewer periods
         const tA = Object.keys(teacherSchedule[teacher.name][a]).length;
         const tB = Object.keys(teacherSchedule[teacher.name][b]).length;
         if (tA !== tB) return tA - tB;
-        // Then prefer days where class has fewer periods filled
         const cA = Object.keys(timetable[classDiv][a]).length;
         const cB = Object.keys(timetable[classDiv][b]).length;
         return cA - cB;
@@ -1469,13 +1472,38 @@ function placeAssignment(assignment, timetable, teacherSchedule, data, relaxed =
         for (const period of periods) {
             if (timetable[classDiv][day][period]) continue;
             if (period === 1 && teacher.isBlockHead) continue;
-            if (teacherSchedule[teacher.name][day][period]) continue;
+
+            // For multi-class subjects, allow up to MAX_SIMULTANEOUS classes in same slot
+            if (isMultiClass) {
+                const simultaneousCount = teacherSchedule[teacher.name][day][period]
+                    ? (Array.isArray(teacherSchedule[teacher.name][day][period])
+                        ? teacherSchedule[teacher.name][day][period].length
+                        : 1)
+                    : 0;
+                if (simultaneousCount >= MAX_SIMULTANEOUS) continue;
+            } else {
+                // Normal teacher: must be free
+                if (teacherSchedule[teacher.name][day][period]) continue;
+            }
 
             const teacherPeriodsToday = Object.keys(teacherSchedule[teacher.name][day]).length;
             if (teacherPeriodsToday >= (teacher.maxPeriodsPerDay || 7)) continue;
 
+            // Place it
             timetable[classDiv][day][period] = { subject, teacher: teacher.name };
-            teacherSchedule[teacher.name][day][period] = classDiv;
+
+            // Track teacher schedule (multi-class stores array)
+            if (isMultiClass) {
+                if (!teacherSchedule[teacher.name][day][period]) {
+                    teacherSchedule[teacher.name][day][period] = [classDiv];
+                } else if (Array.isArray(teacherSchedule[teacher.name][day][period])) {
+                    teacherSchedule[teacher.name][day][period].push(classDiv);
+                } else {
+                    teacherSchedule[teacher.name][day][period] = [teacherSchedule[teacher.name][day][period], classDiv];
+                }
+            } else {
+                teacherSchedule[teacher.name][day][period] = classDiv;
+            }
             return true;
         }
     }
