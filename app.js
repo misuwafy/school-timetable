@@ -1401,6 +1401,7 @@ function runTimetableAlgorithm(data) {
 
     let bestFailCount = Infinity;
     let bestTimetable = null;
+    let lastFailedDetails = {};
     const maxAttempts = 30;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -1507,6 +1508,7 @@ function runTimetableAlgorithm(data) {
         if (failCount < bestFailCount) {
             bestFailCount = failCount;
             bestTimetable = JSON.parse(JSON.stringify(timetable));
+            lastFailedDetails = { ...failedDetails };
         }
 
         // Rebuild assignments for next attempt (restore what was used for class teacher priority)
@@ -1550,7 +1552,7 @@ function runTimetableAlgorithm(data) {
     }
 
     // Build failure details
-    const failList = Object.entries(failedDetails).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}: ${v} periods`).join('<br>');
+    const failList = Object.entries(lastFailedDetails).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}: ${v} periods`).join('<br>');
 
     return {
         success: false,
