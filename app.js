@@ -13,7 +13,7 @@ const PERIOD_TIMES = [
 const ALL_SUBJECTS_8_9 = [
     'First Language', 'Malayalam II', 'English', 'Hindi', 'Maths',
     'Social Science', 'Chemistry', 'Physics', 'Biology', 'IT',
-    'PET', 'Music', 'Work Education', 'Art'
+    'PET', 'Music', 'Work Experience', 'Art'
 ];
 
 const ALL_SUBJECTS_10 = [
@@ -22,7 +22,7 @@ const ALL_SUBJECTS_10 = [
 ];
 
 // Special subjects with fixed 1 period/week for class 8 and 9
-const SPECIAL_SUBJECTS = ['PET', 'Music', 'Work Education', 'Art'];
+const SPECIAL_SUBJECTS = ['PET', 'Music', 'Work Experience', 'Art'];
 
 // Cache
 let _cache = { classes: [], teachers: [], blocks: [], timetable: {} };
@@ -478,7 +478,7 @@ function showAddClassModal(editIdx = null) {
 function renderSubjectEntries(cls, classNum) {
     const subjects = classNum === 10 ? ALL_SUBJECTS_10 : ALL_SUBJECTS_8_9;
     const defaultPeriods = {
-        'PET': 1, 'Music': 1, 'Work Education': 1, 'Art': 1
+        'PET': 1, 'Music': 1, 'Work Experience': 1, 'Art': 1
     };
     const data = getData();
     const teachers = data.teachers;
@@ -620,17 +620,22 @@ function saveClass(editIdx) {
     // Validate total periods
     const totalPeriods = subjects.reduce((s, sub) => s + sub.periodsPerWeek, 0);
     const isClass8or9 = (className === '8' || className === '9');
-    const expectedTotal = isClass8or9 ? 32 : 35;
+    const validTotals8_9 = [31, 32, 35]; // 31+4special=35, 32+3special=35, or 35 if manually entered all
 
-    if (totalPeriods !== expectedTotal && totalPeriods !== 35) {
-        showToast(`Total periods must be ${expectedTotal} for Class ${className} (${isClass8or9 ? 'PET/Music/Art auto-added' : '5 days × 7'}). Current: ${totalPeriods}`, 'warning');
+    if (isClass8or9 && !validTotals8_9.includes(totalPeriods)) {
+        showToast(`Class 8/9: total must be 31 or 32 (special subjects auto-added). Current: ${totalPeriods}`, 'warning');
+        return;
+    }
+    if (!isClass8or9 && totalPeriods !== 35) {
+        showToast(`Total periods must be 35 (5 days × 7 periods). Current: ${totalPeriods}`, 'warning');
         return;
     }
 
-    // Auto-add PET, Music, Art for class 8 & 9 if total is 32
-    if (isClass8or9 && totalPeriods === 32) {
+    // Auto-add special subjects for class 8 & 9
+    if (isClass8or9 && (totalPeriods === 31 || totalPeriods === 32)) {
         const specialSubjects = [
             { name: 'PET', periodsPerWeek: 1, teacher: 'Shajir' },
+            { name: 'Work Experience', periodsPerWeek: 1, teacher: 'Sheeba' },
             { name: 'Music', periodsPerWeek: 1, teacher: 'Divya' },
             { name: 'Art', periodsPerWeek: 1, teacher: 'Udayesh' }
         ];
@@ -639,6 +644,12 @@ function saveClass(editIdx) {
                 subjects.push(sp);
             }
         });
+        // Verify final total is 35
+        const finalTotal = subjects.reduce((s, sub) => s + sub.periodsPerWeek, 0);
+        if (finalTotal !== 35) {
+            showToast(`After adding special subjects, total is ${finalTotal} (must be 35). Adjust periods.`, 'warning');
+            return;
+        }
     }
 
     const classObj = {
@@ -2040,16 +2051,19 @@ async function handleExcelUpload(event) {
         classes.forEach(cls => {
             const total = cls.subjects.reduce((s, sub) => s + sub.periodsPerWeek, 0);
             const isClass8or9 = (cls.name === '8' || cls.name === '9');
-            const expectedTotal = isClass8or9 ? 32 : 35;
+            const validTotals = isClass8or9 ? [31, 32, 35] : [35];
 
-            if (total !== expectedTotal && total !== 35) {
-                errors.push(`Class ${cls.name}-${cls.divisions[0]}: total = ${total} (must be ${expectedTotal})`);
+            if (!validTotals.includes(total)) {
+                errors.push(`Class ${cls.name}-${cls.divisions[0]}: total = ${total} (must be ${isClass8or9 ? '31 or 32' : '35'})`);
             }
 
-            // Auto-add PET, Music, Art for class 8/9 if total is 32
-            if (isClass8or9 && total === 32) {
+            // Auto-add PET, Music, Art, Work Experience for class 8/9 if total is 31 or 32
+            if (isClass8or9 && (total === 31 || total === 32)) {
                 if (!cls.subjects.find(s => s.name === 'PET')) {
                     cls.subjects.push({ name: 'PET', periodsPerWeek: 1, teacher: 'Shajir' });
+                }
+                if (!cls.subjects.find(s => s.name === 'Work Experience')) {
+                    cls.subjects.push({ name: 'Work Experience', periodsPerWeek: 1, teacher: 'Sheeba' });
                 }
                 if (!cls.subjects.find(s => s.name === 'Music')) {
                     cls.subjects.push({ name: 'Music', periodsPerWeek: 1, teacher: 'Divya' });
