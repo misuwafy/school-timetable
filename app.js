@@ -345,7 +345,7 @@ function renderClasses() {
                                         <td><span class="badge badge-primary">${c.block || '-'}</span></td>
                                         <td><span style="font-size:12px;">${c.classType || '-'}</span></td>
                                         <td>
-                                            ${(c.subjects || []).filter(s => s.periodsPerWeek > 0).length} subjects
+                                            ${getClassPeriodTotal(c)} periods
                                         </td>
                                         <td>
                                             <button class="btn btn-sm btn-outline" onclick="viewClass(${idx})"><i class="fas fa-eye"></i></button>
@@ -712,6 +712,23 @@ function saveClass(editIdx) {
     doSave();
 }
 
+// Helper: calculate class total periods counting shared only once
+function getClassPeriodTotal(cls) {
+    let total = 0;
+    const counted = new Set();
+    (cls.subjects || []).forEach(sub => {
+        if (sub.shared && sub.sharedGroup) {
+            if (!counted.has(sub.sharedGroup)) {
+                counted.add(sub.sharedGroup);
+                total += sub.periodsPerWeek;
+            }
+        } else if (sub.periodsPerWeek > 0) {
+            total += sub.periodsPerWeek;
+        }
+    });
+    return total;
+}
+
 function updateTeacherSubjects(data) {
     // Rebuild each teacher's subject list from all class assignments
     const teacherSubjectsMap = {};
@@ -759,7 +776,7 @@ function viewClass(idx) {
                     </tbody>
                 </table>
                 <br>
-                <p><strong>Total Periods/Week:</strong> ${cls.subjects.reduce((s, sub) => s + sub.periodsPerWeek, 0)}</p>
+                <p><strong>Total Periods/Week:</strong> ${getClassPeriodTotal(cls)}</p>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-outline" onclick="closeModal('viewClassModal')">Close</button>
