@@ -844,7 +844,7 @@ function renderTeachers() {
                             <tbody id="teacherTableBody">
                                 ${data.teachers.map((t, idx) => {
                                     const total = teacherTotalPeriods[t.name] || 0;
-                                    const maxWeek = (t.maxPeriodsPerDay || 7) * 5;
+                                    const maxWeek = (t.maxPeriodsPerDay || 5) * 5;
                                     const overloaded = total > maxWeek;
                                     return `
                                     <tr data-name="${t.name.toLowerCase()}">
@@ -856,7 +856,7 @@ function renderTeachers() {
                                             ${overloaded ? '<span class="badge badge-danger" style="margin-left:4px;">Overloaded</span>' : ''}
                                         </td>
                                         <td>${t.isBlockHead ? `<span class="badge badge-warning">${t.headOfBlock}</span>` : '-'}</td>
-                                        <td>${t.maxPeriodsPerDay || 7}</td>
+                                        <td>${t.maxPeriodsPerDay || 5}</td>
                                         <td>
                                             <button class="btn btn-sm btn-outline" onclick="editTeacher(${idx})"><i class="fas fa-edit"></i></button>
                                             <button class="btn btn-sm btn-danger" onclick="deleteTeacher(${idx})"><i class="fas fa-trash"></i></button>
@@ -900,7 +900,7 @@ function showAddTeacherModal(editIdx = null) {
                 <div class="form-group">
                     <label>Max Periods per Day</label>
                     <input type="number" class="form-control" id="maxPeriodsDay" 
-                        min="1" max="8" value="${teacher ? (teacher.maxPeriodsPerDay || 7) : 7}">
+                        min="1" max="7" value="${teacher ? (teacher.maxPeriodsPerDay || 5) : 5}">
                 </div>
                 <div class="form-group">
                     <label style="display:flex;align-items:center;gap:8px;">
@@ -1484,7 +1484,7 @@ function runTimetableAlgorithm(data) {
                         if (!r.isMultiClass && teacherBusy[t]) {
                             const periodsToday = Object.keys(teacherBusy[t][day]).filter(p => teacherBusy[t][day][p]).length;
                             const teacherObj = data.teachers.find(tc => tc.name === t);
-                            if (periodsToday >= (teacherObj?.maxPeriodsPerDay || 7)) return false;
+                            if (periodsToday >= (teacherObj?.maxPeriodsPerDay || 5)) return false;
                         }
 
                         return true;
@@ -1677,15 +1677,20 @@ function renderTimetableForTeacher(teacherName, data) {
             if (classSchedule[day]) {
                 PERIODS.forEach(p => {
                     const slot = classSchedule[day][p];
-                    if (slot && slot.teacher === teacherName) {
-                        schedule[day][p] = { subject: slot.subject, classDiv };
+                    if (slot && (slot.teacher === teacherName || (slot.teacher && slot.teacher.includes(teacherName)))) {
+                        if (!schedule[day][p]) {
+                            schedule[day][p] = { subject: slot.subject, classes: [classDiv] };
+                        } else {
+                            schedule[day][p].classes.push(classDiv);
+                        }
                     }
                 });
             }
         });
     });
 
-    const totalPeriods = DAYS.reduce((sum, day) => sum + Object.keys(schedule[day]).length, 0);
+    let totalPeriods = 0;
+    DAYS.forEach(day => { totalPeriods += Object.keys(schedule[day]).length; });
 
     return `
         <h3 style="margin-bottom:8px;">Timetable for ${teacherName}</h3>
@@ -1708,7 +1713,7 @@ function renderTimetableForTeacher(teacherName, data) {
                                     return `<td>
                                         <div class="timetable-cell">
                                             <div class="subject">${slot.subject}</div>
-                                            <div class="class-info">Class ${slot.classDiv}</div>
+                                            <div class="class-info">${slot.classes.map(c => c).join(', ')}</div>
                                         </div>
                                     </td>`;
                                 }
