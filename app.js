@@ -1451,12 +1451,18 @@ function runTimetableAlgorithm(data) {
         else if (attempt % 3 === 2) shuffleArray(teacherOrder);
 
         // Move PET/Art/Music/WE teachers to front (no conflicts, easy to place)
+        // Then shared subject teachers (need multiple teachers free = harder, do early)
         const specialTeachers = teacherOrder.filter(t => {
             const assignments = teacherAssignments[t] || [];
             return assignments.some(a => MULTI_CLASS_SUBJECTS.includes(a.subject));
         });
-        const normalTeachers = teacherOrder.filter(t => !specialTeachers.includes(t));
-        const finalOrder = [...specialTeachers, ...normalTeachers];
+        const sharedTeachers = teacherOrder.filter(t => {
+            if (specialTeachers.includes(t)) return false;
+            const assignments = teacherAssignments[t] || [];
+            return assignments.some(a => a.sharedGroup);
+        });
+        const normalTeachers = teacherOrder.filter(t => !specialTeachers.includes(t) && !sharedTeachers.includes(t));
+        const finalOrder = [...specialTeachers, ...sharedTeachers, ...normalTeachers];
 
         let failCount = 0;
         const failedDetails = {};
