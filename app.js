@@ -2130,32 +2130,29 @@ async function handleExcelUpload(event) {
 
                 if (periodsNum > 0 && subject.length > 0) {
                     // Handle slash-separated teachers/subjects (shared periods)
-                    // e.g., Subject: "I st Lang", Teacher: "Sreeja M/Safeer" 
-                    // or Subject: "Sanskrit/Urdu", Teacher: "Sreeja M/Safeer"
                     const teachers = teacher.split('/').map(t => t.trim()).filter(t => t);
-                    const subjects = subject.split('/').map(s => s.trim()).filter(s => s);
+                    const subjects_split = subject.split('/').map(s => s.trim()).filter(s => s);
 
                     if (teachers.length > 1) {
                         // Multiple teachers sharing this period slot
-                        // Each teacher gets their own entry but marked as shared
-                        // Only the first counts toward class total periods
+                        const groupId = `shared_${currentDiv.subjects.length}`;
                         for (let ti = 0; ti < teachers.length; ti++) {
-                            const subName = subjects.length > 1 ? subjects[ti] || subjects[0] : subject;
+                            const subName = subjects_split.length > 1 ? subjects_split[ti] || subjects_split[0] : subject;
                             currentDiv.subjects.push({
                                 name: subName,
                                 teacher: teachers[ti],
                                 periodsPerWeek: periodsNum,
                                 shared: true,
-                                sharedGroup: currentDiv.subjects.length // link them
+                                sharedGroup: groupId
                             });
                         }
                     } else {
-                        // Single teacher, normal entry
                         currentDiv.subjects.push({
                             name: subject,
                             teacher: teacher,
                             periodsPerWeek: periodsNum,
-                            shared: false
+                            shared: false,
+                            sharedGroup: null
                         });
                     }
                 }
@@ -2165,8 +2162,16 @@ async function handleExcelUpload(event) {
 
         console.log(`Parsed ${classes.length} class-divisions from Excel`);
         classes.forEach(c => {
-            const total = c.subjects.reduce((s, sub) => s + sub.periodsPerWeek, 0);
-            console.log(`  ${c.name}-${c.divisions[0]}: ${c.subjects.length} subjects, ${total} periods`);
+            const rawTotal = c.subjects.reduce((s, sub) => s + sub.periodsPerWeek, 0);
+            let classTotal = 0;
+            const cg = new Set();
+            c.subjects.forEach(sub => {
+                if (sub.shared && sub.sharedGroup) {
+                    if (!cg.has(sub.sharedGroup)) { cg.add(sub.sharedGroup); classTotal += sub.periodsPerWeek; }
+                } else { classTotal += sub.periodsPerWeek; }
+            });
+            const sharedCount = c.subjects.filter(s => s.shared).length;
+            console.log(`  ${c.name}-${c.divisions[0]}: ${c.subjects.length} entries, classTotal=${classTotal}, rawTotal=${rawTotal}, shared=${sharedCount}`);
         });
 
         if (classes.length === 0) {
@@ -2177,15 +2182,16 @@ async function handleExcelUpload(event) {
         // Validate
         let errors = [];
         classes.forEach(cls => {
-            // Calculate class total: shared subjects count only once (they use the same period slot)
+            // Calculate class total: shared subjects count only once (same period slot)
             let total = 0;
             const countedGroups = new Set();
             cls.subjects.forEach(sub => {
-                if (sub.shared && sub.sharedGroup !== undefined) {
+                if (sub.shared && sub.sharedGroup) {
                     if (!countedGroups.has(sub.sharedGroup)) {
                         countedGroups.add(sub.sharedGroup);
                         total += sub.periodsPerWeek;
                     }
+                    // Skip additional teachers in same group
                 } else {
                     total += sub.periodsPerWeek;
                 }
@@ -2217,7 +2223,7 @@ async function handleExcelUpload(event) {
                     let curTotal = 0;
                     const cg = new Set();
                     cls.subjects.forEach(sub => {
-                        if (sub.shared && sub.sharedGroup !== undefined) {
+                        if (sub.shared && sub.sharedGroup) {
                             if (!cg.has(sub.sharedGroup)) { cg.add(sub.sharedGroup); curTotal += sub.periodsPerWeek; }
                         } else { curTotal += sub.periodsPerWeek; }
                     });
