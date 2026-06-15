@@ -186,8 +186,50 @@ def get_timetable(db: Session = Depends(get_db)):
 
 @app.post("/api/timetable")
 def save_timetable(data: dict, db: Session = Depends(get_db)):
-    db.query(Timetable).delete()
-    db.add(Timetable(data=data))
+    # Save to history first
+    from datetime import datetime
+    db.execute(
+        Timetable.__table__.insert().values(data={"timetable": data, "saved_at": datetime.utcnow().isoformat()})
+    )
+    # Update current (id=1 is always current)
+    current = db.query(Timetable).filter(Timetable.id == 1).first()
+    if current:
+        current.data = data
+    else:
+        db.add(Timetable(data=data))
+    db.commit()
+    return {"ok": True}
+
+
+@app.get("/api/timetable/history")
+def get_timetable_history(db: Session = Depends(get_db)):
+    all_tt = db.query(Timetable).filter(Timetable.id != 1).order_by(Timetable.id.desc()).all()
+    return [{"id": t.id, "saved_at": t.data.get("saved_at", "Unknown") if isinstance(t.data, dict) and "saved_at" in t.data else "Unknown"} for t in all_tt]
+
+
+@app.get("/api/timetable/history/{history_id}")
+def get_timetable_version(history_id: int, db: Session = Depends(get_db)):
+    tt = db.query(Timetable).filter(Timetable.id == history_id).first()
+    if not tt:
+        raise HTTPException(404, "Not found")
+    data = tt.data
+    if isinstance(data, dict) and "timetable" in data:
+        return data["timetable"]
+    return data
+
+
+@app.post("/api/timetable/restore/{history_id}")
+def restore_timetable(history_id: int, db: Session = Depends(get_db)):
+    tt = db.query(Timetable).filter(Timetable.id == history_id).first()
+    if not tt:
+        raise HTTPException(404, "Not found")
+    data = tt.data
+    timetable_data = data.get("timetable", data) if isinstance(data, dict) else data
+    current = db.query(Timetable).filter(Timetable.id == 1).first()
+    if current:
+        current.data = timetable_data
+    else:
+        db.add(Timetable(data=timetable_data))
     db.commit()
     return {"ok": True}
 

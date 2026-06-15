@@ -1224,6 +1224,9 @@ function renderGenerate() {
                     <button class="btn btn-success btn-lg" onclick="generateTimetable()" style="padding:14px 32px;font-size:16px;">
                         <i class="fas fa-magic"></i> Generate Conflict-Free Timetable
                     </button>
+                    <button class="btn btn-outline" onclick="showTimetableHistory()" style="margin-left:12px;">
+                        <i class="fas fa-history"></i> History
+                    </button>
 
                     <div id="generationProgress" style="display:none;margin-top:24px;">
                         <p id="genStatus">Generating...</p>
@@ -2132,6 +2135,76 @@ function downloadCSV(csv, filename) {
     a.click();
     URL.revokeObjectURL(url);
     showToast('Exported successfully!', 'success');
+}
+
+// ===== TIMETABLE HISTORY =====
+async function showTimetableHistory() {
+    showLoading('Loading history...');
+    try {
+        const history = await fetch(`${API_BASE}/timetable/history`).then(r => r.json());
+        hideLoading();
+
+        const modal = document.createElement('div');
+        modal.className = 'modal-overlay';
+        modal.id = 'historyModal';
+        modal.innerHTML = `
+            <div class="modal">
+                <div class="modal-header">
+                    <h3><i class="fas fa-history"></i> Timetable History</h3>
+                    <button class="modal-close" onclick="closeModal('historyModal')">&times;</button>
+                </div>
+                <div class="modal-body">
+                    ${history.length === 0 ? `
+                        <div class="empty-state">
+                            <i class="fas fa-clock"></i>
+                            <h3>No History Yet</h3>
+                            <p>Generate a timetable to start building history.</p>
+                        </div>
+                    ` : `
+                        <div class="table-container">
+                            <table>
+                                <thead><tr><th>#</th><th>Saved At</th><th>Actions</th></tr></thead>
+                                <tbody>
+                                    ${history.map((h, i) => `
+                                        <tr>
+                                            <td>${i + 1}</td>
+                                            <td>${h.saved_at !== 'Unknown' ? new Date(h.saved_at).toLocaleString() : 'Unknown'}</td>
+                                            <td>
+                                                <button class="btn btn-sm btn-primary" onclick="restoreTimetable(${h.id})"><i class="fas fa-undo"></i> Restore</button>
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    `}
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline" onclick="closeModal('historyModal')">Close</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    } catch (e) {
+        hideLoading();
+        showToast('Error loading history', 'error');
+    }
+}
+
+async function restoreTimetable(historyId) {
+    if (!confirm('Restore this timetable version? Current timetable will be replaced.')) return;
+    showLoading('Restoring...');
+    try {
+        await fetch(`${API_BASE}/timetable/restore/${historyId}`, { method: 'POST' });
+        await fetchData();
+        hideLoading();
+        closeModal('historyModal');
+        showToast('Timetable restored!', 'success');
+        renderPage('timetable');
+    } catch (e) {
+        hideLoading();
+        showToast('Error restoring timetable', 'error');
+    }
 }
 
 // ===== SEARCH & FILTER =====
