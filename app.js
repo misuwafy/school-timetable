@@ -1512,18 +1512,20 @@ function runTimetableAlgorithm(data) {
                         if (NO_PERIOD_1.includes(t) && period === 1) return false;
 
                         // Rule 6: Feeding mothers - P4 OR P5 must be free daily
-                        // Strategy: block them from having BOTH P4 and P5
-                        // If placing P4: allow only if P5 not yet taken
-                        // If placing P5: allow only if P4 not yet taken
                         if (FEEDING_MOTHERS.includes(t) && (period === 4 || period === 5)) {
                             const otherPeriod = period === 4 ? 5 : 4;
-                            // Check ALL sources: teacherBusy and usedTeachersThisSlot won't help for same period
                             // Check if teacher already has the other period assigned today
-                            let otherOccupied = false;
-                            if (teacherBusy[t] && teacherBusy[t][day] && teacherBusy[t][day][otherPeriod]) {
-                                otherOccupied = true;
-                            }
-                            if (otherOccupied) return false;
+                            if (teacherBusy[t] && teacherBusy[t][day] && teacherBusy[t][day][otherPeriod]) return false;
+                            // Also check via timetable scan (backup check)
+                            let otherBusy = false;
+                            classDivs.forEach(otherCd => {
+                                if (timetable[otherCd][day][otherPeriod] && 
+                                    timetable[otherCd][day][otherPeriod].teacher && 
+                                    timetable[otherCd][day][otherPeriod].teacher.includes(t)) {
+                                    otherBusy = true;
+                                }
+                            });
+                            if (otherBusy) return false;
                         }
 
                         // Rule 7: Swalih - Friday only: no P4, IT only in P5
