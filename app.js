@@ -1711,8 +1711,102 @@ function runTimetableAlgorithm(data) {
     }
 
     if (bestTimetable) {
-        // No post-processing removal — classes must always be complete (35 periods)
-        // Teacher rules are best-effort during generation, never create blanks
+        // Post-process: fix rule violations by SWAPPING (not deleting)
+        // For each violation, find another period in the same day where we can swap
+        
+        classDivs.forEach(cd => {
+            DAYS.forEach(day => {
+                PERIODS.forEach(period => {
+                    const slot = bestTimetable[cd][day][period];
+                    if (!slot || !slot.teacher) return;
+                    const teacher = slot.teacher;
+
+                    let violated = false;
+                    // Check Rashid
+                    if (teacher.includes('Rashid') && (period === 1 || period === 4)) violated = true;
+                    // Check Bindya
+                    if (teacher.includes('Bindya') && period === 1) violated = true;
+                    // Check Saheer & Yasir Friday P4,P5
+                    if ((teacher.includes('Saheer') || teacher.includes('Yasir')) && day === 'Friday' && (period === 4 || period === 5)) violated = true;
+                    // Check Swalih/Fuaad/Bavakutty Friday P4
+                    if ((teacher.includes('Swalih') || teacher.includes('Fuaad') || teacher.includes('Bavakutty')) && day === 'Friday' && period === 4) violated = true;
+
+                    if (!violated) return;
+
+                    // Try to swap with another period in same class/day that doesn't have this teacher
+                    let swapped = false;
+                    for (const otherPeriod of PERIODS) {
+                        if (otherPeriod === period) continue;
+                        const otherSlot = bestTimetable[cd][day][otherPeriod];
+                        if (!otherSlot) continue;
+
+                        // Check if the OTHER teacher would be okay in the violated period
+                        const otherTeacher = otherSlot.teacher || '';
+                        let otherOk = true;
+                        if (otherTeacher.includes('Rashid') && (period === 1 || period === 4)) otherOk = false;
+                        if (otherTeacher.includes('Bindya') && period === 1) otherOk = false;
+                        if ((otherTeacher.includes('Saheer') || otherTeacher.includes('Yasir')) && day === 'Friday' && (period === 4 || period === 5)) otherOk = false;
+                        if ((otherTeacher.includes('Swalih') || otherTeacher.includes('Fuaad') || otherTeacher.includes('Bavakutty')) && day === 'Friday' && period === 4) otherOk = false;
+
+                        // Check if the violating teacher would be okay in the other period
+                        let thisOk = true;
+                        if (teacher.includes('Rashid') && (otherPeriod === 1 || otherPeriod === 4)) thisOk = false;
+                        if (teacher.includes('Bindya') && otherPeriod === 1) thisOk = false;
+                        if ((teacher.includes('Saheer') || teacher.includes('Yasir')) && day === 'Friday' && (otherPeriod === 4 || otherPeriod === 5)) thisOk = false;
+                        if ((teacher.includes('Swalih') || teacher.includes('Fuaad') || teacher.includes('Bavakutty')) && day === 'Friday' && otherPeriod === 4) thisOk = false;
+
+                        // Check teacher conflicts: is the violating teacher free in otherPeriod across all classes?
+                        let teacherFreeInOther = true;
+                        classDivs.forEach(otherCd => {
+                            if (otherCd === cd) return;
+                            const s = bestTimetable[otherCd][day][otherPeriod];
+                            if (s && s.teacher && s.teacher.includes(teacher.split('/')[0])) {
+                                teacherFreeInOther = false;
+                            }
+                        });
+
+                        let otherTeacherFreeInThis = true;
+                        classDivs.forEach(otherCd => {
+                            if (otherCd === cd) return;
+                            const s = bestTimetable[otherCd][day][period];
+                            if (s && s.teacher && s.teacher.includes(otherTeacher.split('/')[0])) {
+                                otherTeacherFreeInThis = false;
+                            }
+                        });
+
+                        if (otherOk && thisOk && teacherFreeInOther && otherTeacherFreeInThis) {
+                            // Swap
+                            bestTimetable[cd][day][period] = otherSlot;
+                            bestTimetable[cd][day][otherPeriod] = slot;
+                            swapped = true;
+                            break;
+                        }
+                    }
+                    // If can't swap within same day, try other days (leave as is — rule is best effort)
+                });
+
+                // Feeding mothers: if both P4 and P5 occupied, try to swap one
+                ['Jaleela', 'Shafeedha'].forEach(fm => {
+                    const p4 = bestTimetable[cd][day][4];
+                    const p5 = bestTimetable[cd][day][5];
+                    const p4HasFM = p4 && p4.teacher && p4.teacher.includes(fm);
+                    const p5HasFM = p5 && p5.teacher && p5.teacher.includes(fm);
+                    if (p4HasFM && p5HasFM) {
+                        // Try to swap P5 with another period
+                        for (const otherP of [1, 2, 3, 6, 7]) {
+                            const otherSlot = bestTimetable[cd][day][otherP];
+                            if (!otherSlot) continue;
+                            if (otherSlot.teacher && otherSlot.teacher.includes(fm)) continue; // same teacher
+                            // Swap P5's slot with otherP
+                            bestTimetable[cd][day][5] = otherSlot;
+                            bestTimetable[cd][day][otherP] = p5;
+                            break;
+                        }
+                    }
+                });
+            });
+        });
+
         return { success: true, timetable: bestTimetable };
     }
 
