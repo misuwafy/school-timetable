@@ -1499,6 +1499,37 @@ function runTimetableAlgorithm(data) {
                         // Normal teacher checks
                         const t = r.teachers[0];
                         if (!t) return false;
+
+                        // ===== STRICT TEACHER RULES (checked first) =====
+                        // Rule 10: Rashid - no P1 and P4 daily
+                        if (t.trim() === 'Rashid' && (period === 1 || period === 4)) return false;
+                        // Rule 13: Bindya - no P1 daily
+                        if (t.trim() === 'Bindya' && period === 1) return false;
+                        // Rule 6: Feeding mothers - either P4 or P5 must be free
+                        if ((t.trim() === 'Jaleela' || t.trim() === 'Shafeedha') && (period === 4 || period === 5)) {
+                            const otherPeriod = period === 4 ? 5 : 4;
+                            if (teacherBusy[t] && teacherBusy[t][day] && teacherBusy[t][day][otherPeriod]) return false;
+                            let otherBusy = false;
+                            classDivs.forEach(otherCd => {
+                                if (timetable[otherCd][day][otherPeriod] && 
+                                    timetable[otherCd][day][otherPeriod].teacher &&
+                                    timetable[otherCd][day][otherPeriod].teacher.includes(t)) {
+                                    otherBusy = true;
+                                }
+                            });
+                            if (otherBusy) return false;
+                        }
+                        // Rule 7: Swalih - Friday: no P4, IT only P5
+                        if (t.trim() === 'Swalih' && day === 'Friday') {
+                            if (period === 4) return false;
+                            if (r.subject === 'IT' && period !== 5) return false;
+                        }
+                        // Rule 8,9: Fuaad, Bavakutty - no P4 Friday
+                        if ((t.trim() === 'Fuaad' || t.trim() === 'Bavakutty' || t.trim() === 'Swalih') && day === 'Friday' && period === 4) return false;
+                        // Rule 11: Saheer & Yasir - no P4,P5 Friday
+                        if ((t.trim() === 'Saheer' || t.trim() === 'Yasir') && day === 'Friday' && (period === 4 || period === 5)) return false;
+                        // ===== END STRICT RULES =====
+
                         if (usedTeachersThisSlot.has(t)) return false;
                         if (teacherBusy[t] && teacherBusy[t][day][period]) return false;
 
@@ -1507,41 +1538,6 @@ function runTimetableAlgorithm(data) {
                             const teacherObj = data.teachers.find(tc => tc.name === t);
                             if (teacherObj && teacherObj.isBlockHead) return false;
                         }
-
-                        // Rule 13: Bindya - no period 1 daily
-                        if (NO_PERIOD_1.includes(t) && period === 1) return false;
-
-                        // Rule 6: Feeding mothers - P4 OR P5 must be free daily
-                        if (FEEDING_MOTHERS.includes(t) && (period === 4 || period === 5)) {
-                            const otherPeriod = period === 4 ? 5 : 4;
-                            // Check if teacher already has the other period assigned today
-                            if (teacherBusy[t] && teacherBusy[t][day] && teacherBusy[t][day][otherPeriod]) return false;
-                            // Also check via timetable scan (backup check)
-                            let otherBusy = false;
-                            classDivs.forEach(otherCd => {
-                                if (timetable[otherCd][day][otherPeriod] && 
-                                    timetable[otherCd][day][otherPeriod].teacher && 
-                                    timetable[otherCd][day][otherPeriod].teacher.includes(t)) {
-                                    otherBusy = true;
-                                }
-                            });
-                            if (otherBusy) return false;
-                        }
-
-                        // Rule 7: Swalih - Friday only: no P4, IT only in P5
-                        if (t === 'Swalih' && day === 'Friday') {
-                            if (period === 4) return false;
-                            if (r.subject === 'IT' && period !== 5) return false;
-                        }
-
-                        // Rule 8 & 9: Fuaad, Bavakutty - no P4 Friday only
-                        if (FRIDAY_NO_P4.includes(t) && day === 'Friday' && period === 4) return false;
-
-                        // Rule 10: Rashid - no periods 1 and 4 daily
-                        if (t === 'Rashid' && (period === 1 || period === 4)) return false;
-
-                        // Rule 11: Saheer & Yasir - no periods 4,5 on Friday
-                        if (FRIDAY_RESTRICTED.includes(t) && day === 'Friday' && (period === 4 || period === 5)) return false;
 
                         // Rule 3: Max periods per day
                         // Non-IT teachers: max 5/day
@@ -1629,24 +1625,16 @@ function runTimetableAlgorithm(data) {
 
                         const t = r.teachers[0];
                         if (!t) return false;
-                        if (teacherBusy[t] && teacherBusy[t][day][period]) return false;
-                        if (teacherBusy[t]) {
-                            const periodsToday = Object.keys(teacherBusy[t][day]).filter(p => teacherBusy[t][day][p]).length;
-                            if (periodsToday >= 7) return false;
-                        }
-                        if (period === 1) {
-                            const teacherObj = data.teachers.find(tc => tc.name === t);
-                            if (teacherObj && teacherObj.isBlockHead) return false;
-                        }
-                        // Keep strict rules even in relaxed pass
-                        if (NO_PERIOD_1.includes(t) && period === 1) return false;
-                        if (FEEDING_MOTHERS.includes(t) && (period === 4 || period === 5)) {
+
+                        // ===== STRICT RULES (never relaxed) =====
+                        if (t.trim() === 'Rashid' && (period === 1 || period === 4)) return false;
+                        if (t.trim() === 'Bindya' && period === 1) return false;
+                        if ((t.trim() === 'Jaleela' || t.trim() === 'Shafeedha') && (period === 4 || period === 5)) {
                             const otherPeriod = period === 4 ? 5 : 4;
                             if (teacherBusy[t] && teacherBusy[t][day] && teacherBusy[t][day][otherPeriod]) return false;
-                            // Backup: scan timetable directly
                             let otherBusy = false;
                             classDivs.forEach(otherCd => {
-                                if (timetable[otherCd][day][otherPeriod] && 
+                                if (timetable[otherCd][day][otherPeriod] &&
                                     timetable[otherCd][day][otherPeriod].teacher &&
                                     timetable[otherCd][day][otherPeriod].teacher.includes(t)) {
                                     otherBusy = true;
@@ -1654,9 +1642,11 @@ function runTimetableAlgorithm(data) {
                             });
                             if (otherBusy) return false;
                         }
-                        if (t === 'Rashid' && (period === 1 || period === 4)) return false;
-                        if (FRIDAY_NO_P4.includes(t) && day === 'Friday' && period === 4) return false;
-                        if (FRIDAY_RESTRICTED.includes(t) && day === 'Friday' && (period === 4 || period === 5)) return false;
+                        if ((t.trim() === 'Swalih' || t.trim() === 'Fuaad' || t.trim() === 'Bavakutty') && day === 'Friday' && period === 4) return false;
+                        if ((t.trim() === 'Saheer' || t.trim() === 'Yasir') && day === 'Friday' && (period === 4 || period === 5)) return false;
+                        // ===== END STRICT =====
+
+                        if (teacherBusy[t] && teacherBusy[t][day][period]) return false;
                         return true;
                     });
 
