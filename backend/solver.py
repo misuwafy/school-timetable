@@ -412,10 +412,15 @@ def solve_timetable(classes_data, teachers_data):
                                 placed = True
                                 break
 
-                    # Absolute last: only conflict check (1-2 slots max in entire school)
+                    # Absolute last: conflict check + keep science P7 rule
                     if not placed:
                         for ni, need in enumerate(remaining[cd]):
                             if need['left'] <= 0:
+                                continue
+                            # Still enforce: Physics/Chemistry NEVER in P7
+                            if need['subject'] in ['Physics', 'Chemistry'] and p == 6:
+                                continue
+                            if need['subject'] == 'Biology' and p == 6 and not cd.startswith('10-'):
                                 continue
                             if need['is_multi']:
                                 do_place(cd, d, p, need, timetable, teacher_busy, fm_used)
