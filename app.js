@@ -1643,8 +1643,18 @@ function runTimetableAlgorithm(data) {
                         if (FEEDING_MOTHERS.includes(t) && (period === 4 || period === 5)) {
                             const otherPeriod = period === 4 ? 5 : 4;
                             if (teacherBusy[t] && teacherBusy[t][day] && teacherBusy[t][day][otherPeriod]) return false;
+                            // Backup: scan timetable directly
+                            let otherBusy = false;
+                            classDivs.forEach(otherCd => {
+                                if (timetable[otherCd][day][otherPeriod] && 
+                                    timetable[otherCd][day][otherPeriod].teacher &&
+                                    timetable[otherCd][day][otherPeriod].teacher.includes(t)) {
+                                    otherBusy = true;
+                                }
+                            });
+                            if (otherBusy) return false;
                         }
-                        if (t === 'Rashid' && RASHID_NO_PERIODS.includes(period)) return false;
+                        if (t === 'Rashid' && (period === 1 || period === 4)) return false;
                         if (FRIDAY_NO_P4.includes(t) && day === 'Friday' && period === 4) return false;
                         if (FRIDAY_RESTRICTED.includes(t) && day === 'Friday' && (period === 4 || period === 5)) return false;
                         return true;
