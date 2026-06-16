@@ -269,7 +269,8 @@ def solve_timetable(classes_data, teachers_data):
                     for t in need['teachers']:
                         used_this_slot.add(t)
 
-        # Step 3: Fill remaining (relaxed max/day, keep rules)
+        # Step 3: Fill remaining - ONLY check teacher not double-booked + Science P7
+        # All other rules relaxed to ensure no blanks
         for cd in class_divs:
             for d in range(NUM_DAYS):
                 for p in range(NUM_PERIODS):
@@ -279,35 +280,23 @@ def solve_timetable(classes_data, teachers_data):
                         if need['left'] <= 0:
                             continue
                         if need['is_multi']:
-                            # Rule 12: no P1
                             if p == 0:
                                 continue
                             do_place(cd, d, p, need, timetable, teacher_busy)
                             need['left'] -= 1
                             break
-                        all_ok = True
+                        # Only check: teacher not in another class at this time
+                        all_free = True
                         for t in need['teachers']:
                             t = t.strip()
                             if teacher_busy[t][d].get(p):
-                                all_ok = False; break
-                            if is_teacher_restricted(t, d, p):
-                                all_ok = False; break
-                            if t in block_heads and p == 0:
-                                all_ok = False; break
-                            if is_feeding_mother(t) and (p == 3 or p == 4):
-                                other_p = 4 if p == 3 else 3
-                                if teacher_busy[t][d].get(other_p):
-                                    all_ok = False; break
-                        if all_ok:
-                            # Rule 1 relaxed in Step 3: allow max 2 per day to avoid blanks
-                            subject_today = [timetable[cd][d][pp]['subject'] for pp in range(NUM_PERIODS) if timetable[cd][d].get(pp)]
-                            if subject_today.count(need['subject']) >= 2:
-                                continue
-                            # Rule 2: Science P7
-                            if need['subject'] in ['Physics', 'Chemistry'] and p == 6 and cd.startswith('10-'):
-                                continue
-                            if need['subject'] == 'Biology' and p == 6 and not cd.startswith('10-'):
-                                continue
+                                all_free = False
+                                break
+                        if not all_free:
+                            continue
+                        # Keep hard science P7 rule
+                        if need['subject'] in ['Physics', 'Chemistry'] and p == 6 and cd.startswith('10-'):
+                            continue
                             do_place(cd, d, p, need, timetable, teacher_busy)
                             need['left'] -= 1
                             break
