@@ -201,6 +201,60 @@ def save_timetable(data: dict, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
+@app.post("/api/generate-timetable")
+def generate_timetable(db: Session = Depends(get_db)):
+    """Generate timetable using OR-Tools solver"""
+    from solver import solve_timetable
+    from datetime import datetime
+
+    # Get all data
+    classes = db.query(SchoolClass).all()
+    teachers = db.query(Teacher).all()
+
+    classes_data = [
+        {
+            "name": c.name,
+            "divisions": c.divisions,
+            "block": c.block,
+            "classType": c.classType,
+            "classTeacher": c.classTeacher,
+            "subjects": c.subjects
+        }
+        for c in classes
+    ]
+
+    teachers_data = [
+        {
+            "name": t.name,
+            "maxPeriodsPerDay": t.maxPeriodsPerDay,
+            "isBlockHead": t.isBlockHead,
+            "headOfBlock": t.headOfBlock
+        }
+        for t in teachers
+    ]
+
+    # Solve
+    timetable = solve_timetable(classes_data, teachers_data)
+
+    if timetable is None:
+        raise HTTPException(500, "Could not generate a valid timetable. Check constraints.")
+
+    # Save to history
+    db.execute(
+        Timetable.__table__.insert().values(data={"timetable": timetable, "saved_at": datetime.utcnow().isoformat()})
+    )
+
+    # Save as current
+    current = db.query(Timetable).filter(Timetable.id == 1).first()
+    if current:
+        current.data = timetable
+    else:
+        db.add(Timetable(data=timetable))
+    db.commit()
+
+    return {"ok": True, "timetable": timetable}
+
+
 @app.get("/api/timetable/history")
 def get_timetable_history(db: Session = Depends(get_db)):
     all_tt = db.query(Timetable).filter(Timetable.id != 1).order_by(Timetable.id.desc()).all()
