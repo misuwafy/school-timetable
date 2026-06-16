@@ -435,7 +435,9 @@ def solve_timetable(classes_data, teachers_data):
         unplaced = sum(n['left'] for cd in class_divs for n in remaining[cd])
 
         if unplaced == 0:
-            return format_timetable(timetable, class_divs, remaining, needs)
+            result = format_timetable(timetable, class_divs, remaining, needs)
+            result['_violations'] = validate_timetable(timetable, class_divs, needs)
+            return result
 
         if unplaced < best_unplaced:
             best_unplaced = unplaced
@@ -443,8 +445,77 @@ def solve_timetable(classes_data, teachers_data):
 
     # Always return something - never leave classes blank
     if best_timetable:
-        return format_timetable(best_timetable, class_divs, remaining, needs)
-    return format_timetable(timetable, class_divs, remaining, needs)
+        result = format_timetable(best_timetable, class_divs, remaining, needs)
+        result['_violations'] = validate_timetable(best_timetable, class_divs, needs)
+        result['_unplaced'] = best_unplaced
+        return result
+    result = format_timetable(timetable, class_divs, remaining, needs)
+    result['_violations'] = validate_timetable(timetable, class_divs, needs)
+    return result
+
+
+def validate_timetable(timetable, class_divs, needs):
+    """Check for rule violations in the generated timetable"""
+    violations = []
+    
+    # Build teacher schedule from timetable
+    teacher_days = defaultdict(lambda: defaultdict(dict))
+    for cd in class_divs:
+        for d in range(NUM_DAYS):
+            for p in range(NUM_PERIODS):
+                slot = timetable[cd][d].get(p)
+                if slot:
+                    teachers = slot.get('teachers', [slot.get('teacher_str', '')])
+                    for t in teachers:
+                        t = t.strip()
+                        if t:
+                            teacher_days[t][d][p] = cd
+
+    # Check feeding mothers
+    for fm in ['Jaleela', 'Shafeedha']:
+        if fm not in teacher_days:
+            continue
+        for d in range(NUM_DAYS):
+            has_p4 = 3 in teacher_days[fm][d]
+            has_p5 = 4 in teacher_days[fm][d]
+            if has_p4 and has_p5:
+                violations.append(f"{fm}: {DAYS[d]} has BOTH P4 and P5 occupied")
+
+    # Check Rashid
+    if 'Rashid' in teacher_days:
+        for d in range(NUM_DAYS):
+            if 0 in teacher_days['Rashid'][d]:
+                violations.append(f"Rashid: {DAYS[d]} P1 occupied")
+            if 3 in teacher_days['Rashid'][d]:
+                violations.append(f"Rashid: {DAYS[d]} P4 occupied")
+
+    # Check Bindya
+    if 'Bindya' in teacher_days:
+        for d in range(NUM_DAYS):
+            if 0 in teacher_days['Bindya'][d]:
+                violations.append(f"Bindya: {DAYS[d]} P1 occupied")
+
+    # Check Friday restrictions
+    friday = 4
+    for t in ['Saheer', 'Yasir']:
+        if t in teacher_days:
+            if 3 in teacher_days[t][friday]:
+                violations.append(f"{t}: Friday P4 occupied")
+            if 4 in teacher_days[t][friday]:
+                violations.append(f"{t}: Friday P5 occupied")
+
+    for t in ['Swalih', 'Fuaad', 'Bavakutty']:
+        if t in teacher_days:
+            if 3 in teacher_days[t][friday]:
+                violations.append(f"{t}: Friday P4 occupied")
+
+    # Check blank periods
+    for cd in class_divs:
+        filled = sum(1 for d in range(NUM_DAYS) for p in range(NUM_PERIODS) if timetable[cd][d].get(p))
+        if filled < 35:
+            violations.append(f"{cd}: only {filled}/35 periods filled")
+
+    return violations
 
 
 def can_place(cd, ni, d, p, need, timetable, teacher_busy, teacher_map, block_heads, fm_used, class_divs):

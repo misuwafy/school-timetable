@@ -1271,11 +1271,31 @@ function generateTimetable() {
             document.getElementById('genStatus').textContent = 'Complete!';
 
             _cache.timetable = result.timetable;
-            showToast('Timetable generated successfully!', 'success');
+            
+            // Show violations if any
+            const violations = result.timetable?._violations || [];
+            const unplaced = result.timetable?._unplaced || 0;
+            delete result.timetable?._violations;
+            delete result.timetable?._unplaced;
+
+            let statusMsg = 'All classes filled. All teacher rules enforced. No conflicts.';
+            let extraHtml = '';
+            if (violations.length > 0) {
+                statusMsg = `Generated with ${violations.length} rule violation(s):`;
+                extraHtml = `<div style="margin-top:12px;background:#fffbeb;padding:12px;border-radius:8px;font-size:12px;max-height:200px;overflow-y:auto;">
+                    ${violations.map(v => `<div>⚠️ ${v}</div>`).join('')}
+                </div>`;
+            }
+            if (unplaced > 0) {
+                statusMsg += ` (${unplaced} periods could not be placed)`;
+            }
+
+            showToast('Timetable generated!', 'success');
             document.getElementById('generationResult').innerHTML = `
                 <div style="background:#ecfdf5;padding:16px;border-radius:var(--radius);border:1px solid var(--success);">
-                    <h4 style="color:var(--success);margin-bottom:8px;"><i class="fas fa-check-circle"></i> Timetable Generated Successfully!</h4>
-                    <p>All classes filled. All teacher rules enforced. No conflicts.</p>
+                    <h4 style="color:var(--success);margin-bottom:8px;"><i class="fas fa-check-circle"></i> Timetable Generated!</h4>
+                    <p>${statusMsg}</p>
+                    ${extraHtml}
                     <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
                         <button class="btn btn-primary btn-sm" onclick="switchTimetableTab('class')">View Class Wise</button>
                         <button class="btn btn-primary btn-sm" onclick="switchTimetableTab('teacher')">View Teacher Wise</button>
