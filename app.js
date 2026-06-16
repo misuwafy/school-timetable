@@ -1770,6 +1770,63 @@ function runTimetableAlgorithm(data) {
             });
         });
 
+        // Re-fill blanks: try to swap or fill empty slots with any available subject
+        // Build what's still needed per class (from remaining counts of original needs)
+        classDivs.forEach(cd => {
+            DAYS.forEach(day => {
+                PERIODS.forEach(period => {
+                    if (bestTimetable[cd][day][period]) return; // already filled
+
+                    // Find any subject from this class that has remaining periods AND teacher is free
+                    const classNeeds = needs[cd];
+                    if (!classNeeds) return;
+
+                    // Count what's already placed for this class
+                    const placedCounts = {};
+                    DAYS.forEach(d => {
+                        PERIODS.forEach(p => {
+                            const slot = bestTimetable[cd][d][p];
+                            if (slot) {
+                                const key = `${slot.subject}_${slot.teacher}`;
+                                placedCounts[key] = (placedCounts[key] || 0) + 1;
+                            }
+                        });
+                    });
+
+                    for (const need of classNeeds) {
+                        const key = `${need.subject}_${need.teachers.join('/')}`;
+                        const placed = placedCounts[key] || 0;
+                        if (placed >= need.count) continue; // already fully placed
+
+                        // Check teacher is free for this slot
+                        let canPlace = true;
+                        for (const t of need.teachers) {
+                            // Check if teacher has any class in this slot
+                            let busy = false;
+                            classDivs.forEach(otherCd => {
+                                const otherSlot = bestTimetable[otherCd][day][period];
+                                if (otherSlot && otherSlot.teacher && otherSlot.teacher.includes(t)) {
+                                    busy = true;
+                                }
+                            });
+                            if (busy && !need.isMultiClass) { canPlace = false; break; }
+
+                            // Strict rules
+                            if (t.trim() === 'Rashid' && (period === 1 || period === 4)) { canPlace = false; break; }
+                            if (t.trim() === 'Bindya' && period === 1) { canPlace = false; break; }
+                            if ((t.trim() === 'Saheer' || t.trim() === 'Yasir') && day === 'Friday' && (period === 4 || period === 5)) { canPlace = false; break; }
+                            if ((t.trim() === 'Swalih' || t.trim() === 'Fuaad' || t.trim() === 'Bavakutty') && day === 'Friday' && period === 4) { canPlace = false; break; }
+                        }
+
+                        if (canPlace) {
+                            bestTimetable[cd][day][period] = { subject: need.subject, teacher: need.teachers.join('/'), shared: need.shared };
+                            break;
+                        }
+                    }
+                });
+            });
+        });
+
         return { success: true, timetable: bestTimetable };
     }
 
