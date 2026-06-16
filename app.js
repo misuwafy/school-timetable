@@ -1432,11 +1432,13 @@ function runTimetableAlgorithm(data) {
         // STEP 2: Slot-by-slot scheduling
         // ===== SCHEDULING CONSTRAINTS =====
         const SCIENCE_SUBJECTS = ['Physics', 'Chemistry', 'Biology'];
-        const AFTERNOON_PERIODS = [5, 6, 7];
-        const FEEDING_MOTHERS = ['Jaseela', 'Shafeedha'];
-        const NO_PERIOD_4 = ['Swalih', 'Fuaad', 'Bavakutty', 'Rashid'];
-        const RASHID_NO_PERIODS = [1, 4];
+        const SCIENCE_HARD_NO = [7]; // strictly prohibited
+        const SCIENCE_SOFT_NO = [5, 6]; // should avoid but not strict
+        const FEEDING_MOTHERS = ['Jaleela', 'Shafeedha'];
+        const FRIDAY_NO_P4 = ['Swalih', 'Fuaad', 'Bavakutty']; // no period 4 on Friday only
+        const RASHID_NO_PERIODS = [1, 4]; // daily
         const FRIDAY_RESTRICTED = ['Saheer', 'Yasir']; // no periods 4,5 on Friday
+        const NO_PERIOD_1 = ['Bindya']; // no period 1 daily
         const ART_MAX_SIMULTANEOUS = 2;
         const ART_PREFERRED_PERIODS = [6, 7];
 
@@ -1470,8 +1472,11 @@ function runTimetableAlgorithm(data) {
                         const subToday = Object.values(timetable[cd][day]).filter(s => s.subject === r.subject).length;
                         if (subToday >= 2) return false;
 
-                        // Rule 2: Science subjects NOT in afternoon (periods 5,6,7)
-                        if (SCIENCE_SUBJECTS.includes(r.subject) && AFTERNOON_PERIODS.includes(period)) return false;
+                        // Rule 2: Science - HARD NO for period 7, soft avoid for 5,6
+                        if (SCIENCE_SUBJECTS.includes(r.subject)) {
+                            if (SCIENCE_HARD_NO.includes(period)) return false;
+                            if (SCIENCE_SOFT_NO.includes(period)) return false; // prefer morning
+                        }
 
                         // Rule 1: Art - max 2 simultaneous, preferred periods 6,7
                         if (r.subject === 'Art') {
@@ -1502,20 +1507,26 @@ function runTimetableAlgorithm(data) {
                             if (teacherObj && teacherObj.isBlockHead) return false;
                         }
 
-                        // Rule 6: Feeding mothers - no periods 4 and 5
-                        if (FEEDING_MOTHERS.includes(t) && (period === 4 || period === 5)) return false;
+                        // Rule 13: Bindya - no period 1 daily
+                        if (NO_PERIOD_1.includes(t) && period === 1) return false;
 
-                        // Rule 7: Swalih - no period 4, IT only in period 5
-                        if (t === 'Swalih') {
-                            if (period === 4) return false;
-                            if (r.subject === 'IT' && period !== 5) return false;
-                            if (r.subject !== 'IT' && period === 5) return false;
+                        // Rule 6: Feeding mothers - ensure either P4 or P5 is free daily
+                        if (FEEDING_MOTHERS.includes(t) && (period === 4 || period === 5)) {
+                            // Check if the other period (4 or 5) is already taken
+                            const otherPeriod = period === 4 ? 5 : 4;
+                            if (teacherBusy[t] && teacherBusy[t][day][otherPeriod]) return false;
                         }
 
-                        // Rule 8 & 9: Fuaad, Bavakutty - no period 4
-                        if ((t === 'Fuaad' || t === 'Bavakutty') && period === 4) return false;
+                        // Rule 7: Swalih - Friday only: no P4, IT only in P5
+                        if (t === 'Swalih' && day === 'Friday') {
+                            if (period === 4) return false;
+                            if (r.subject === 'IT' && period !== 5) return false;
+                        }
 
-                        // Rule 10: Rashid - no periods 1 and 4
+                        // Rule 8 & 9: Fuaad, Bavakutty - no P4 Friday only
+                        if (FRIDAY_NO_P4.includes(t) && day === 'Friday' && period === 4) return false;
+
+                        // Rule 10: Rashid - no periods 1 and 4 daily
                         if (t === 'Rashid' && RASHID_NO_PERIODS.includes(period)) return false;
 
                         // Rule 11: Saheer & Yasir - no periods 4,5 on Friday
