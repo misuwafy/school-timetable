@@ -73,7 +73,7 @@ def solve_timetable(classes_data, teachers_data):
                     if sub['sharedGroup'] in processed_groups:
                         continue
                     processed_groups.add(sub['sharedGroup'])
-                    group_teachers = [s['teacher'] for s in cls.get('subjects', [])
+                    group_teachers = [s['teacher'].strip() for s in cls.get('subjects', [])
                                       if s.get('sharedGroup') == sub['sharedGroup'] and s.get('teacher')]
                     group_subjects = [s['name'] for s in cls.get('subjects', [])
                                       if s.get('sharedGroup') == sub['sharedGroup']]
@@ -89,8 +89,8 @@ def solve_timetable(classes_data, teachers_data):
                     is_multi = sub['name'] in MULTI_CLASS_SUBJECTS
                     needs[cd].append({
                         'subject': sub['name'],
-                        'teacher_str': sub['teacher'],
-                        'teachers': [sub['teacher']],
+                        'teacher_str': sub['teacher'].strip(),
+                        'teachers': [sub['teacher'].strip()],
                         'periods': sub['periodsPerWeek'],
                         'is_multi': is_multi,
                         'shared': sub.get('shared', False)
@@ -572,9 +572,10 @@ def do_place(cd, d, p, need, timetable, teacher_busy, fm_used):
     }
     if not need['is_multi']:
         for t in need['teachers']:
+            t = t.strip()
             teacher_busy[t][d][p] = True
             if is_feeding_mother(t) and (p == 3 or p == 4):
-                fm_used[t.strip()][d] += 1
+                fm_used[t][d] += 1
 
 
 def format_timetable(timetable, class_divs, remaining, needs):
