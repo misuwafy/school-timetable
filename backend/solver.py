@@ -113,6 +113,34 @@ def solve_timetable(classes_data, teachers_data):
         # Track feeding mother usage per day
         fm_used = {fm: {d: 0 for d in range(NUM_DAYS)} for fm in ['Jaleela', 'Shafeedha']}
 
+        # Step 0: Distribute PET/Art/Music/WE evenly across all 5 days FIRST
+        for cd in class_divs:
+            for ni, need in enumerate(remaining[cd]):
+                if need['left'] <= 0 or not need['is_multi']:
+                    continue
+                # Assign to the day with fewest multi-class slots so far
+                while need['left'] > 0:
+                    # Find day with fewest assigned periods for this class
+                    day_loads = [(d, sum(1 for pp in range(NUM_PERIODS) if timetable[cd][d].get(pp))) for d in range(NUM_DAYS)]
+                    day_loads.sort(key=lambda x: x[1])
+                    placed = False
+                    for d, _ in day_loads:
+                        # Check if this class already has this multi-subject today
+                        already = sum(1 for pp in range(NUM_PERIODS) if timetable[cd][d].get(pp) and timetable[cd][d][pp]['subject'] == need['subject'])
+                        if already >= 1:
+                            continue
+                        # Find a free period
+                        for p in range(NUM_PERIODS):
+                            if timetable[cd][d].get(p) is None:
+                                do_place(cd, d, p, need, timetable, teacher_busy, fm_used)
+                                need['left'] -= 1
+                                placed = True
+                                break
+                        if placed:
+                            break
+                    if not placed:
+                        break  # Can't place more
+
         # Step 1: Schedule restricted teachers first in their allowed periods
         restricted_teachers = ['Rashid', 'Bindya', 'Jaleela', 'Shafeedha', 'Saheer', 'Yasir', 'Swalih', 'Fuaad', 'Bavakutty']
 
