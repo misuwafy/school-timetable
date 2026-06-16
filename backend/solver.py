@@ -108,6 +108,7 @@ def solve_timetable(classes_data, teachers_data):
         # Step 0: Distribute PET/Art/Music/WE evenly across days with SLOT LIMITS
         # Track how many multi-class subjects are in each slot
         slot_counts = defaultdict(lambda: defaultdict(int))  # (d, p) -> {subject: count}
+        it_lab_slots = defaultdict(int)  # (d, p) -> count of IT lab classes
 
         for cd in class_divs:
             for ni, need in enumerate(remaining[cd]):
@@ -118,23 +119,24 @@ def solve_timetable(classes_data, teachers_data):
 
                 while need['left'] > 0:
                     placed = False
-                    # Try all days, prefer days with fewer of this subject for this class
                     day_order = list(range(NUM_DAYS))
                     random.shuffle(day_order)
 
                     for d in day_order:
-                        # Max 1 per class per day
                         already = sum(1 for pp in range(NUM_PERIODS) if timetable[cd][d].get(pp) and timetable[cd][d][pp]['subject'] == subject)
                         if already >= 1:
                             continue
-                        # Find a period with available capacity (not P1 = index 0)
-                        for p in range(1, NUM_PERIODS):
+                        # PET prefers periods 6,7 (index 5,6), then 5 (index 4), then others
+                        if subject == 'PET':
+                            period_order = [5, 6, 4, 3, 2, 1]  # P6, P7, P5, P4, P3, P2 (skip P1=0)
+                        else:
+                            period_order = list(range(1, NUM_PERIODS))  # P2-P7
+
+                        for p in period_order:
                             if timetable[cd][d].get(p) is not None:
                                 continue
-                            # Check slot limit
                             if slot_counts[(d, p)].get(subject, 0) >= max_per_slot:
                                 continue
-                            # Place it
                             do_place(cd, d, p, need, timetable, teacher_busy)
                             need['left'] -= 1
                             slot_counts[(d, p)][subject] = slot_counts[(d, p)].get(subject, 0) + 1
@@ -143,7 +145,7 @@ def solve_timetable(classes_data, teachers_data):
                         if placed:
                             break
                     if not placed:
-                        break  # Can't place more
+                        break
 
         # Step 0.5: Class teachers in Period 1 (soft priority)
         ct_entries = list(class_teacher_map.items())
@@ -476,8 +478,43 @@ def do_place(cd, d, p, need, timetable, teacher_busy):
 
 
 def format_timetable(timetable, class_divs):
-    """Format timetable for frontend"""
+    """Format timetable for frontend - marks IT periods as Lab or Theory"""
     result = {}
+
+    # Count IT periods per class and track lab assignments per slot
+    it_lab_usage = defaultdict(int)  # (d, p) -> count of lab classes
+
+    # First pass: determine which IT periods are Lab vs Theory
+    it_periods_per_class = defaultdict(list)  # cd -> [(d, p)]
+    for cd in class_divs:
+        for d in range(NUM_DAYS):
+            for p in range(NUM_PERIODS):
+                slot = timetable[cd][d].get(p)
+                if slot and slot['subject'] == 'IT':
+                    it_periods_per_class[cd].append((d, p))
+
+    # Assign Lab/Theory based on grade
+    it_lab_marks = {}  # (cd, d, p) -> 'Lab' or 'Theory'
+    for cd in class_divs:
+        periods = it_periods_per_class[cd]
+        if cd.startswith('10-'):
+            # Grade 10: 3 IT periods -> 2 Lab, 1 Theory
+            lab_count = min(2, len(periods))
+        else:
+            # Grade 8/9: 2 IT periods -> 1 Lab, 1 Theory
+            lab_count = min(1, len(periods))
+
+        # Assign labs to periods that don't exceed 6 simultaneous
+        assigned_labs = 0
+        for d, p in periods:
+            if assigned_labs < lab_count and it_lab_usage[(d, p)] < MAX_IT_LAB_PER_SLOT:
+                it_lab_marks[(cd, d, p)] = 'Lab'
+                it_lab_usage[(d, p)] += 1
+                assigned_labs += 1
+            else:
+                it_lab_marks[(cd, d, p)] = 'Theory'
+
+    # Build result
     for cd in class_divs:
         result[cd] = {}
         for d in range(NUM_DAYS):
@@ -487,8 +524,12 @@ def format_timetable(timetable, class_divs):
                 period_num = PERIODS[p]
                 slot = timetable[cd][d].get(p)
                 if slot:
+                    subject_display = slot['subject']
+                    # Add Lab/Theory marker for IT
+                    if slot['subject'] == 'IT' and (cd, d, p) in it_lab_marks:
+                        subject_display = f"IT ({it_lab_marks[(cd, d, p)]})"
                     result[cd][day_name][period_num] = {
-                        'subject': slot['subject'],
+                        'subject': subject_display,
                         'teacher': slot['teacher_str'],
                         'shared': slot.get('shared', False)
                     }
