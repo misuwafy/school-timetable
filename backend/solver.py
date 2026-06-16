@@ -266,6 +266,31 @@ def solve_timetable(classes_data, teachers_data):
                                 need['left'] -= 1
                                 break
 
+        # Step 4: FORCE fill - only check teacher not double-booked (ignore all other rules except conflict)
+        for cd in class_divs:
+            for d in range(NUM_DAYS):
+                for p in range(NUM_PERIODS):
+                    if timetable[cd][d].get(p) is not None:
+                        continue
+                    # Must fill this slot - find any subject still needed
+                    for ni, need in enumerate(remaining[cd]):
+                        if need['left'] <= 0:
+                            continue
+                        if need['is_multi']:
+                            do_place(cd, d, p, need, timetable, teacher_busy, fm_used)
+                            need['left'] -= 1
+                            break
+                        # Only check: teacher not in another class at this time
+                        all_free = True
+                        for t in need['teachers']:
+                            if teacher_busy[t][d].get(p):
+                                all_free = False
+                                break
+                        if all_free:
+                            do_place(cd, d, p, need, timetable, teacher_busy, fm_used)
+                            need['left'] -= 1
+                            break
+
         # Count unplaced
         unplaced = sum(n['left'] for cd in class_divs for n in remaining[cd])
 
@@ -274,12 +299,12 @@ def solve_timetable(classes_data, teachers_data):
 
         if unplaced < best_unplaced:
             best_unplaced = unplaced
-            best_timetable = {cd: dict(timetable[cd]) for cd in class_divs}
+            best_timetable = {cd: {d: dict(timetable[cd][d]) for d in range(NUM_DAYS)} for cd in class_divs}
 
-    # Return best attempt if no perfect solution
+    # Always return something - never leave classes blank
     if best_timetable:
         return format_timetable(best_timetable, class_divs, remaining, needs)
-    return None
+    return format_timetable(timetable, class_divs, remaining, needs)
 
 
 def can_place(cd, ni, d, p, need, timetable, teacher_busy, teacher_map, block_heads, fm_used, class_divs):
