@@ -339,16 +339,19 @@ def solve_timetable(classes_data, teachers_data):
                             need['left'] -= 1
                             placed = True
                             break
-                    # If still not placed, pick ANY subject with remaining periods (allow double-book)
+                    # If still not placed, only allow multi-class subjects to double-book
                     if not placed:
                         for ni, need in enumerate(remaining[cd]):
                             if need['left'] <= 0:
                                 continue
-                            # Place regardless - class completion is top priority
-                            do_place(cd, d, p, need, timetable, teacher_busy)
-                            need['left'] -= 1
-                            placed = True
-                            break
+                            # Only multi-class subjects can be force-placed (they don't conflict)
+                            if need['is_multi']:
+                                do_place(cd, d, p, need, timetable, teacher_busy)
+                                need['left'] -= 1
+                                placed = True
+                                break
+                        # Regular subjects: skip this slot (will be blank)
+                        # Better to have a rare blank than double-book a teacher
 
         # Count unplaced
         unplaced = sum(n['left'] for cd in class_divs for n in remaining[cd])
