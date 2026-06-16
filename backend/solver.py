@@ -247,11 +247,10 @@ def solve_timetable(classes_data, teachers_data):
                                 if teacher_busy[t][d].get(other_p):
                                     all_ok = False; break
                         if all_ok:
-                            # Rule 1: no subject repeat (except Maths 10th)
+                            # Rule 1 relaxed in Step 3: allow max 2 per day to avoid blanks
                             subject_today = [timetable[cd][d][pp]['subject'] for pp in range(NUM_PERIODS) if timetable[cd][d].get(pp)]
-                            if need['subject'] in subject_today:
-                                if not (need['subject'] == 'Maths' and cd.startswith('10-')):
-                                    continue
+                            if subject_today.count(need['subject']) >= 2:
+                                continue
                             # Rule 2: Science P7
                             if need['subject'] in ['Physics', 'Chemistry'] and p == 6 and cd.startswith('10-'):
                                 continue
