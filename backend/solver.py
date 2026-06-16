@@ -301,30 +301,104 @@ def solve_timetable(classes_data, teachers_data):
                                 need['left'] -= 1
                                 break
 
-        # Step 4: FORCE fill - only check teacher not double-booked (ignore all other rules except conflict)
+        # Step 4: Fill remaining blanks by swapping with other periods in the same class
         for cd in class_divs:
             for d in range(NUM_DAYS):
                 for p in range(NUM_PERIODS):
                     if timetable[cd][d].get(p) is not None:
                         continue
-                    # Must fill this slot - find any subject still needed
+                    # Try to find a subject that can go here (with rules)
+                    placed = False
                     for ni, need in enumerate(remaining[cd]):
                         if need['left'] <= 0:
                             continue
                         if need['is_multi']:
                             do_place(cd, d, p, need, timetable, teacher_busy, fm_used)
                             need['left'] -= 1
+                            placed = True
                             break
-                        # Only check: teacher not in another class at this time
                         all_free = True
                         for t in need['teachers']:
                             if teacher_busy[t][d].get(p):
                                 all_free = False
                                 break
+                            if is_teacher_restricted(t, d, p):
+                                all_free = False
+                                break
+                            if t in block_heads and p == 0:
+                                all_free = False
+                                break
                         if all_free:
                             do_place(cd, d, p, need, timetable, teacher_busy, fm_used)
                             need['left'] -= 1
+                            placed = True
                             break
+
+                    if not placed:
+                        # Try swap: find another period in this class where the needed teacher CAN go
+                        for ni, need in enumerate(remaining[cd]):
+                            if need['left'] <= 0 or need['is_multi']:
+                                continue
+                            # Find a period where this teacher's subject already exists in another day
+                            # and swap with something that CAN be in this slot
+                            for other_d in range(NUM_DAYS):
+                                for other_p in range(NUM_PERIODS):
+                                    if other_d == d and other_p == p:
+                                        continue
+                                    other_slot = timetable[cd][other_d].get(other_p)
+                                    if not other_slot:
+                                        continue
+                                    # Can the current slot's needed teacher go in other_d/other_p?
+                                    can_need_go_other = True
+                                    for t in need['teachers']:
+                                        if teacher_busy[t][other_d].get(other_p):
+                                            can_need_go_other = False
+                                            break
+                                        if is_teacher_restricted(t, other_d, other_p):
+                                            can_need_go_other = False
+                                            break
+                                    if not can_need_go_other:
+                                        continue
+                                    # Can other_slot's teacher go in d/p?
+                                    other_teachers = other_slot.get('teachers', [other_slot.get('teacher_str', '')])
+                                    can_other_go_here = True
+                                    for t in other_teachers:
+                                        if is_teacher_restricted(t, d, p):
+                                            can_other_go_here = False
+                                            break
+                                    if not can_other_go_here:
+                                        continue
+                                    # Swap!
+                                    timetable[cd][d][p] = other_slot
+                                    timetable[cd][other_d][other_p] = None
+                                    # Place the needed subject in the freed slot
+                                    do_place(cd, other_d, other_p, need, timetable, teacher_busy, fm_used)
+                                    need['left'] -= 1
+                                    placed = True
+                                    break
+                                if placed:
+                                    break
+                            if placed:
+                                break
+
+                    # Last resort: place ignoring rules (better than blank)
+                    if not placed:
+                        for ni, need in enumerate(remaining[cd]):
+                            if need['left'] <= 0:
+                                continue
+                            if need['is_multi']:
+                                do_place(cd, d, p, need, timetable, teacher_busy, fm_used)
+                                need['left'] -= 1
+                                break
+                            all_free = True
+                            for t in need['teachers']:
+                                if teacher_busy[t][d].get(p):
+                                    all_free = False
+                                    break
+                            if all_free:
+                                do_place(cd, d, p, need, timetable, teacher_busy, fm_used)
+                                need['left'] -= 1
+                                break
 
         # Count unplaced
         unplaced = sum(n['left'] for cd in class_divs for n in remaining[cd])
