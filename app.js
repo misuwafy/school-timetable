@@ -1430,6 +1430,16 @@ function runTimetableAlgorithm(data) {
         }
 
         // STEP 2: Slot-by-slot scheduling
+        // ===== SCHEDULING CONSTRAINTS =====
+        const SCIENCE_SUBJECTS = ['Physics', 'Chemistry', 'Biology'];
+        const AFTERNOON_PERIODS = [5, 6, 7];
+        const FEEDING_MOTHERS = ['Jaseela', 'Shafeedha'];
+        const NO_PERIOD_4 = ['Swalih', 'Fuaad', 'Bavakutty', 'Rashid'];
+        const RASHID_NO_PERIODS = [1, 4];
+        const FRIDAY_RESTRICTED = ['Saheer', 'Yasir']; // no periods 4,5 on Friday
+        const ART_MAX_SIMULTANEOUS = 2;
+        const ART_PREFERRED_PERIODS = [6, 7];
+
         const dayOrder = [...DAYS];
         const periodOrder = [...PERIODS];
         if (attempt % 2 === 1) { shuffleArray(dayOrder); }
@@ -1439,10 +1449,7 @@ function runTimetableAlgorithm(data) {
             if (attempt > 5) shuffleArray(pOrder);
 
             for (const period of pOrder) {
-                // For this time slot, assign subjects to classes
                 const cdOrder = [...classDivs];
-
-                // Prioritize classes with most remaining work
                 cdOrder.sort((a, b) => {
                     const remA = remaining[a].reduce((s, r) => s + r.left, 0);
                     const remB = remaining[b].reduce((s, r) => s + r.left, 0);
@@ -1451,29 +1458,31 @@ function runTimetableAlgorithm(data) {
                 if (Math.random() < 0.2) shuffleArray(cdOrder);
 
                 const usedTeachersThisSlot = new Set();
-                const petCountThisSlot = 0;
                 let petUsed = 0;
+                let artUsed = 0;
 
                 for (const cd of cdOrder) {
-                    if (timetable[cd][day][period]) continue; // already assigned
+                    if (timetable[cd][day][period]) continue;
 
-                    // Find best subject to place here
                     const candidates = remaining[cd].filter(r => {
                         if (r.left <= 0) return false;
 
-                        // Check max subject per day (2 same subject max)
                         const subToday = Object.values(timetable[cd][day]).filter(s => s.subject === r.subject).length;
                         if (subToday >= 2) return false;
 
-                        // Check teacher availability
+                        // Rule 2: Science subjects NOT in afternoon (periods 5,6,7)
+                        if (SCIENCE_SUBJECTS.includes(r.subject) && AFTERNOON_PERIODS.includes(period)) return false;
+
+                        // Rule 1: Art - max 2 simultaneous, preferred periods 6,7
+                        if (r.subject === 'Art') {
+                            if (artUsed >= ART_MAX_SIMULTANEOUS) return false;
+                        }
+
                         if (r.isMultiClass) {
-                            // PET: max 5 per slot
                             if (r.subject === 'PET' && petUsed >= MAX_PET_PER_SLOT) return false;
-                            // No other conflict for multi-class
                             return true;
                         }
 
-                        // For shared: ALL teachers must be free
                         if (r.shared) {
                             return r.teachers.every(t => {
                                 if (!teacherBusy[t]) return true;
@@ -1481,7 +1490,7 @@ function runTimetableAlgorithm(data) {
                             });
                         }
 
-                        // Normal: teacher must be free
+                        // Normal teacher checks
                         const t = r.teachers[0];
                         if (!t) return false;
                         if (usedTeachersThisSlot.has(t)) return false;
@@ -1493,7 +1502,26 @@ function runTimetableAlgorithm(data) {
                             if (teacherObj && teacherObj.isBlockHead) return false;
                         }
 
-                        // Max periods per day for normal teachers
+                        // Rule 6: Feeding mothers - no periods 4 and 5
+                        if (FEEDING_MOTHERS.includes(t) && (period === 4 || period === 5)) return false;
+
+                        // Rule 7: Swalih - no period 4, IT only in period 5
+                        if (t === 'Swalih') {
+                            if (period === 4) return false;
+                            if (r.subject === 'IT' && period !== 5) return false;
+                            if (r.subject !== 'IT' && period === 5) return false;
+                        }
+
+                        // Rule 8 & 9: Fuaad, Bavakutty - no period 4
+                        if ((t === 'Fuaad' || t === 'Bavakutty') && period === 4) return false;
+
+                        // Rule 10: Rashid - no periods 1 and 4
+                        if (t === 'Rashid' && RASHID_NO_PERIODS.includes(period)) return false;
+
+                        // Rule 11: Saheer & Yasir - no periods 4,5 on Friday
+                        if (FRIDAY_RESTRICTED.includes(t) && day === 'Friday' && (period === 4 || period === 5)) return false;
+
+                        // Max periods per day
                         if (!r.isMultiClass && teacherBusy[t]) {
                             const periodsToday = Object.keys(teacherBusy[t][day]).filter(p => teacherBusy[t][day][p]).length;
                             const teacherObj = data.teachers.find(tc => tc.name === t);
@@ -1506,7 +1534,12 @@ function runTimetableAlgorithm(data) {
                     if (candidates.length === 0) continue;
 
                     // Pick: prefer subjects whose teacher has fewer periods today (spread load)
+                    // Rule 1: Art prefers periods 6,7
                     candidates.sort((a, b) => {
+                        // Art preference for periods 6,7
+                        if (a.subject === 'Art' && ART_PREFERRED_PERIODS.includes(period)) return -1;
+                        if (b.subject === 'Art' && ART_PREFERRED_PERIODS.includes(period)) return 1;
+
                         const aLoad = a.teachers.reduce((sum, t) => {
                             return sum + (teacherBusy[t] ? Object.keys(teacherBusy[t][day]).filter(p => teacherBusy[t][day][p]).length : 0);
                         }, 0);
@@ -1525,6 +1558,7 @@ function runTimetableAlgorithm(data) {
 
                     if (pick.isMultiClass) {
                         if (pick.subject === 'PET') petUsed++;
+                        if (pick.subject === 'Art') artUsed++;
                     } else {
                         // Mark teachers as used
                         pick.teachers.forEach(t => {
@@ -1773,23 +1807,43 @@ function renderTimetableForTeacher(teacherName, data) {
                 <thead>
                     <tr>
                         <th class="day-header">Day</th>
-                        ${PERIODS.map((p, i) => `<th>Period ${p}<br><small>${getPeriodTime(i, typeof day !== 'undefined' ? day : 'Monday')}</small></th>`).join('')}
+                        <th>Period 1</th>
+                        <th>Period 2</th>
+                        <th style="background:#f59e0b;color:white;width:60px;">Interval</th>
+                        <th>Period 3</th>
+                        <th>Period 4</th>
+                        <th style="background:#ef4444;color:white;width:70px;">Lunch</th>
+                        <th>Period 5</th>
+                        <th>Period 6</th>
+                        <th style="background:#f59e0b;color:white;width:60px;">Interval</th>
+                        <th>Period 7</th>
                     </tr>
                 </thead>
                 <tbody>
                     ${DAYS.map(day => `
                         <tr>
                             <td class="day-header" style="background:var(--primary-dark);color:white;font-weight:700;">${day}</td>
-                            ${PERIODS.map(p => {
+                            ${[1,2].map(p => {
                                 const slot = schedule[day][p];
-                                if (slot) {
-                                    return `<td>
-                                        <div class="timetable-cell">
-                                            <div class="subject">${slot.subject}</div>
-                                            <div class="class-info">${slot.classes.map(c => c).join(', ')}</div>
-                                        </div>
-                                    </td>`;
-                                }
+                                if (slot) return `<td><div class="timetable-cell"><div class="subject">${slot.subject}</div><div class="class-info">${slot.classes.join(', ')}</div></div></td>`;
+                                return `<td style="background:#f0fdf4;"><span style="color:#86efac;">Free</span></td>`;
+                            }).join('')}
+                            <td style="background:#fffbeb;text-align:center;font-size:10px;color:#92400e;">☕</td>
+                            ${[3,4].map(p => {
+                                const slot = schedule[day][p];
+                                if (slot) return `<td><div class="timetable-cell"><div class="subject">${slot.subject}</div><div class="class-info">${slot.classes.join(', ')}</div></div></td>`;
+                                return `<td style="background:#f0fdf4;"><span style="color:#86efac;">Free</span></td>`;
+                            }).join('')}
+                            <td style="background:#fef2f2;text-align:center;font-size:10px;color:#991b1b;">🍽️</td>
+                            ${[5,6].map(p => {
+                                const slot = schedule[day][p];
+                                if (slot) return `<td><div class="timetable-cell"><div class="subject">${slot.subject}</div><div class="class-info">${slot.classes.join(', ')}</div></div></td>`;
+                                return `<td style="background:#f0fdf4;"><span style="color:#86efac;">Free</span></td>`;
+                            }).join('')}
+                            <td style="background:#fffbeb;text-align:center;font-size:10px;color:#92400e;">☕</td>
+                            ${[7].map(p => {
+                                const slot = schedule[day][p];
+                                if (slot) return `<td><div class="timetable-cell"><div class="subject">${slot.subject}</div><div class="class-info">${slot.classes.join(', ')}</div></div></td>`;
                                 return `<td style="background:#f0fdf4;"><span style="color:#86efac;">Free</span></td>`;
                             }).join('')}
                         </tr>
