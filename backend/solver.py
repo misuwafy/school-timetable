@@ -188,6 +188,13 @@ def solve_timetable(classes_data, teachers_data):
                         if need['subject'] == 'Art' and art_count >= MAX_ART_PER_SLOT:
                             continue
 
+                        # Spread multi-class subjects: max 1 per class per day
+                        if need['is_multi']:
+                            already_today = sum(1 for pp in range(NUM_PERIODS)
+                                                if timetable[cd][d].get(pp) and timetable[cd][d][pp]['subject'] == need['subject'])
+                            if already_today >= 1:
+                                continue
+
                         if need['is_multi']:
                             candidates.append((ni, need))
                             continue
