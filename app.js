@@ -1510,11 +1510,19 @@ function runTimetableAlgorithm(data) {
                         // Rule 13: Bindya - no period 1 daily
                         if (NO_PERIOD_1.includes(t) && period === 1) return false;
 
-                        // Rule 6: Feeding mothers - ensure either P4 or P5 is free daily
+                        // Rule 6: Feeding mothers - P4 OR P5 must be free daily
+                        // Strategy: block them from having BOTH P4 and P5
+                        // If placing P4: allow only if P5 not yet taken
+                        // If placing P5: allow only if P4 not yet taken
                         if (FEEDING_MOTHERS.includes(t) && (period === 4 || period === 5)) {
-                            // Check if the other period (4 or 5) is already taken
                             const otherPeriod = period === 4 ? 5 : 4;
-                            if (teacherBusy[t] && teacherBusy[t][day][otherPeriod]) return false;
+                            // Check ALL sources: teacherBusy and usedTeachersThisSlot won't help for same period
+                            // Check if teacher already has the other period assigned today
+                            let otherOccupied = false;
+                            if (teacherBusy[t] && teacherBusy[t][day] && teacherBusy[t][day][otherPeriod]) {
+                                otherOccupied = true;
+                            }
+                            if (otherOccupied) return false;
                         }
 
                         // Rule 7: Swalih - Friday only: no P4, IT only in P5
@@ -1582,16 +1590,16 @@ function runTimetableAlgorithm(data) {
         }
 
         // STEP 3: Fill any remaining blanks with relaxed constraints (allow up to 7 periods/day)
+        // But KEEP strict rules for feeding mothers, Rashid, Bindya, Friday restrictions
         classDivs.forEach(cd => {
             DAYS.forEach(day => {
                 PERIODS.forEach(period => {
                     if (timetable[cd][day][period]) return; // already filled
 
-                    // Find any subject still needed for this class
                     const candidates = remaining[cd].filter(r => {
                         if (r.left <= 0) return false;
                         const subToday = Object.values(timetable[cd][day]).filter(s => s.subject === r.subject).length;
-                        if (subToday >= 3) return false; // relaxed: allow 3 same subject per day
+                        if (subToday >= 3) return false;
 
                         if (r.isMultiClass) return true;
 
@@ -1605,7 +1613,6 @@ function runTimetableAlgorithm(data) {
                         const t = r.teachers[0];
                         if (!t) return false;
                         if (teacherBusy[t] && teacherBusy[t][day][period]) return false;
-                        // Relaxed: allow up to 7 periods/day to avoid blanks
                         if (teacherBusy[t]) {
                             const periodsToday = Object.keys(teacherBusy[t][day]).filter(p => teacherBusy[t][day][p]).length;
                             if (periodsToday >= 7) return false;
@@ -1614,6 +1621,15 @@ function runTimetableAlgorithm(data) {
                             const teacherObj = data.teachers.find(tc => tc.name === t);
                             if (teacherObj && teacherObj.isBlockHead) return false;
                         }
+                        // Keep strict rules even in relaxed pass
+                        if (NO_PERIOD_1.includes(t) && period === 1) return false;
+                        if (FEEDING_MOTHERS.includes(t) && (period === 4 || period === 5)) {
+                            const otherPeriod = period === 4 ? 5 : 4;
+                            if (teacherBusy[t] && teacherBusy[t][day] && teacherBusy[t][day][otherPeriod]) return false;
+                        }
+                        if (t === 'Rashid' && RASHID_NO_PERIODS.includes(period)) return false;
+                        if (FRIDAY_NO_P4.includes(t) && day === 'Friday' && period === 4) return false;
+                        if (FRIDAY_RESTRICTED.includes(t) && day === 'Friday' && (period === 4 || period === 5)) return false;
                         return true;
                     });
 
