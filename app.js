@@ -1453,7 +1453,14 @@ function runTimetableAlgorithm(data) {
 
             for (const period of pOrder) {
                 const cdOrder = [...classDivs];
+                // Prioritize classes that have restricted teachers needing this period
+                const RESTRICTED_TEACHERS = ['Rashid', 'Bindya', 'Jaleela', 'Shafeedha', 'Saheer', 'Yasir', 'Swalih', 'Fuaad', 'Bavakutty'];
                 cdOrder.sort((a, b) => {
+                    // Classes with restricted teachers get priority
+                    const hasRestrictedA = remaining[a].some(r => r.left > 0 && r.teachers.some(t => RESTRICTED_TEACHERS.includes(t.trim())));
+                    const hasRestrictedB = remaining[b].some(r => r.left > 0 && r.teachers.some(t => RESTRICTED_TEACHERS.includes(t.trim())));
+                    if (hasRestrictedA && !hasRestrictedB) return -1;
+                    if (!hasRestrictedA && hasRestrictedB) return 1;
                     const remA = remaining[a].reduce((s, r) => s + r.left, 0);
                     const remB = remaining[b].reduce((s, r) => s + r.left, 0);
                     return remB - remA;
@@ -1680,6 +1687,42 @@ function runTimetableAlgorithm(data) {
                             pick.teachers.forEach(t => {
                                 if (teacherBusy[t]) teacherBusy[t][day][period] = true;
                             });
+                        }
+                    }
+                });
+            });
+        });
+
+        // STEP 4: Final check - all slots should be filled. If any remain, force-fill respecting rules
+        // (This should rarely trigger if Steps 2+3 work correctly)
+        classDivs.forEach(cd => {
+            DAYS.forEach(day => {
+                PERIODS.forEach(period => {
+                    if (timetable[cd][day][period]) return;
+                    // Try to find any subject with teacher free (respecting rules)
+                    const candidates = remaining[cd].filter(r => {
+                        if (r.left <= 0) return false;
+                        if (r.isMultiClass) return true;
+                        if (r.shared) {
+                            return r.teachers.every(t => !teacherBusy[t] || !teacherBusy[t][day][period]);
+                        }
+                        const t = r.teachers[0];
+                        if (!t) return false;
+                        if (teacherBusy[t] && teacherBusy[t][day][period]) return false;
+                        // Still respect rules
+                        if (t.trim() === 'Rashid' && (period === 1 || period === 4)) return false;
+                        if (t.trim() === 'Bindya' && period === 1) return false;
+                        if ((t.trim() === 'Saheer' || t.trim() === 'Yasir') && day === 'Friday' && (period === 4 || period === 5)) return false;
+                        if ((t.trim() === 'Swalih' || t.trim() === 'Fuaad' || t.trim() === 'Bavakutty') && day === 'Friday' && period === 4) return false;
+                        return true;
+                    });
+                    if (candidates.length > 0) {
+                        candidates.sort((a, b) => b.left - a.left);
+                        const pick = candidates[0];
+                        timetable[cd][day][period] = { subject: pick.subject, teacher: pick.teacher, shared: pick.shared };
+                        pick.left--;
+                        if (!pick.isMultiClass) {
+                            pick.teachers.forEach(t => { if (teacherBusy[t]) teacherBusy[t][day][period] = true; });
                         }
                     }
                 });
