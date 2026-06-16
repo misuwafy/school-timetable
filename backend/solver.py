@@ -260,30 +260,42 @@ def solve_timetable(classes_data, teachers_data):
                             need['left'] -= 1
                             break
 
-        # Step 4: Force fill remaining (only conflict check + science P7)
+        # Step 4: Force fill remaining - MUST fill all 35 periods, relax ALL rules if needed
         for cd in class_divs:
             for d in range(NUM_DAYS):
                 for p in range(NUM_PERIODS):
                     if timetable[cd][d].get(p) is not None:
                         continue
+                    # Try with rules first
+                    placed = False
                     for ni, need in enumerate(remaining[cd]):
                         if need['left'] <= 0:
                             continue
-                        if need['subject'] in ['Physics', 'Chemistry'] and p == 6 and cd.startswith('10-'):
-                            continue
                         if need['is_multi']:
-                            if p == 0: continue  # Rule 12
                             do_place(cd, d, p, need, timetable, teacher_busy)
                             need['left'] -= 1
+                            placed = True
                             break
                         all_free = True
                         for t in need['teachers']:
                             t = t.strip()
                             if teacher_busy[t][d].get(p):
-                                all_free = False; break
+                                all_free = False
+                                break
                         if all_free:
                             do_place(cd, d, p, need, timetable, teacher_busy)
                             need['left'] -= 1
+                            placed = True
+                            break
+                    # If still not placed, pick ANY subject with remaining periods (allow double-book)
+                    if not placed:
+                        for ni, need in enumerate(remaining[cd]):
+                            if need['left'] <= 0:
+                                continue
+                            # Place regardless - class completion is top priority
+                            do_place(cd, d, p, need, timetable, teacher_busy)
+                            need['left'] -= 1
+                            placed = True
                             break
 
         # Count unplaced
