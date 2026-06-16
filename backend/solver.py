@@ -105,30 +105,68 @@ def solve_timetable(classes_data, teachers_data):
         teacher_busy = defaultdict(lambda: defaultdict(dict))
         remaining = {cd: [dict(n, left=n['periods']) for n in needs[cd]] for cd in class_divs}
 
-        # Step 0: Distribute PET/Art/Music/WE evenly across days FIRST
+        # Step 0: Distribute PET/Art/Music/WE evenly across days with SLOT LIMITS
+        # Track how many multi-class subjects are in each slot
+        slot_counts = defaultdict(lambda: defaultdict(int))  # (d, p) -> {subject: count}
+
         for cd in class_divs:
             for ni, need in enumerate(remaining[cd]):
                 if need['left'] <= 0 or not need['is_multi']:
                     continue
+                subject = need['subject']
+                max_per_slot = MAX_PET_PER_SLOT if subject == 'PET' else 2  # Art/Music/WE = 2
+
                 while need['left'] > 0:
-                    day_loads = [(d, sum(1 for pp in range(NUM_PERIODS) if timetable[cd][d].get(pp))) for d in range(NUM_DAYS)]
-                    day_loads.sort(key=lambda x: x[1])
                     placed = False
-                    for d, _ in day_loads:
-                        already = sum(1 for pp in range(NUM_PERIODS) if timetable[cd][d].get(pp) and timetable[cd][d][pp]['subject'] == need['subject'])
+                    # Try all days, prefer days with fewer of this subject for this class
+                    day_order = list(range(NUM_DAYS))
+                    random.shuffle(day_order)
+
+                    for d in day_order:
+                        # Max 1 per class per day
+                        already = sum(1 for pp in range(NUM_PERIODS) if timetable[cd][d].get(pp) and timetable[cd][d][pp]['subject'] == subject)
                         if already >= 1:
                             continue
-                        # Rule 12: PET/Art/Music/WE NOT in Period 1
-                        for p in range(1, NUM_PERIODS):  # Start from period 2 (index 1)
-                            if timetable[cd][d].get(p) is None:
-                                do_place(cd, d, p, need, timetable, teacher_busy)
-                                need['left'] -= 1
-                                placed = True
-                                break
+                        # Find a period with available capacity (not P1 = index 0)
+                        for p in range(1, NUM_PERIODS):
+                            if timetable[cd][d].get(p) is not None:
+                                continue
+                            # Check slot limit
+                            if slot_counts[(d, p)].get(subject, 0) >= max_per_slot:
+                                continue
+                            # Place it
+                            do_place(cd, d, p, need, timetable, teacher_busy)
+                            need['left'] -= 1
+                            slot_counts[(d, p)][subject] = slot_counts[(d, p)].get(subject, 0) + 1
+                            placed = True
+                            break
                         if placed:
                             break
                     if not placed:
+                        break  # Can't place more
+
+        # Step 0.5: Class teachers in Period 1 (soft priority)
+        ct_entries = list(class_teacher_map.items())
+        random.shuffle(ct_entries)
+        for cd, ct_name in ct_entries:
+            ct_name = ct_name.strip()
+            if not ct_name or ct_name in block_heads:
+                continue
+            # Find a day where P1 is free and teacher is free
+            for d in range(NUM_DAYS):
+                if timetable[cd][d].get(0) is not None:
+                    continue
+                if teacher_busy[ct_name][d].get(0):
+                    continue
+                # Find a subject this class teacher teaches
+                for ni, need in enumerate(remaining[cd]):
+                    if need['left'] <= 0 or need['is_multi']:
+                        continue
+                    if ct_name in [t.strip() for t in need['teachers']]:
+                        do_place(cd, d, 0, need, timetable, teacher_busy)
+                        need['left'] -= 1
                         break
+                break  # Only place one per attempt for variety
 
         # Step 1: Schedule restricted teachers first
         restricted_teachers_set = set(rule_teachers)
