@@ -1690,7 +1690,57 @@ function runTimetableAlgorithm(data) {
     }
 
     if (bestTimetable) {
-        // Return best attempt even though not perfect
+        // Post-process: remove any strict rule violations from best timetable
+        const strictTeachers = {
+            'Rashid': { noPeriods: [1, 4], days: DAYS },
+            'Bindya': { noPeriods: [1], days: DAYS },
+            'Jaleela': { feedingMother: true },
+            'Shafeedha': { feedingMother: true }
+        };
+
+        classDivs.forEach(cd => {
+            DAYS.forEach(day => {
+                PERIODS.forEach(period => {
+                    const slot = bestTimetable[cd][day][period];
+                    if (!slot) return;
+                    const teacher = slot.teacher;
+                    if (!teacher) return;
+
+                    // Check Rashid
+                    if (teacher.includes('Rashid') && (period === 1 || period === 4)) {
+                        bestTimetable[cd][day][period] = null;
+                    }
+                    // Check Bindya
+                    if (teacher.includes('Bindya') && period === 1) {
+                        bestTimetable[cd][day][period] = null;
+                    }
+                });
+
+                // Check feeding mothers: if both P4 and P5 are occupied, remove P5
+                ['Jaleela', 'Shafeedha'].forEach(fm => {
+                    const p4 = bestTimetable[cd][day][4];
+                    const p5 = bestTimetable[cd][day][5];
+                    const p4HasFM = p4 && p4.teacher && p4.teacher.includes(fm);
+                    const p5HasFM = p5 && p5.teacher && p5.teacher.includes(fm);
+                    if (p4HasFM && p5HasFM) {
+                        // Remove P5 assignment for this feeding mother
+                        bestTimetable[cd][day][5] = null;
+                    }
+                });
+            });
+        });
+
+        // Clean nulls
+        classDivs.forEach(cd => {
+            DAYS.forEach(day => {
+                PERIODS.forEach(period => {
+                    if (bestTimetable[cd][day][period] === null) {
+                        delete bestTimetable[cd][day][period];
+                    }
+                });
+            });
+        });
+
         return { success: true, timetable: bestTimetable };
     }
 
