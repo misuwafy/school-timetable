@@ -381,7 +381,38 @@ def solve_timetable(classes_data, teachers_data):
                             if placed:
                                 break
 
-                    # Last resort: place ignoring rules (better than blank)
+                    # Last resort: still enforce feeding mother + restrictions, only relax max/day
+                    if not placed:
+                        for ni, need in enumerate(remaining[cd]):
+                            if need['left'] <= 0:
+                                continue
+                            if need['is_multi']:
+                                do_place(cd, d, p, need, timetable, teacher_busy, fm_used)
+                                need['left'] -= 1
+                                placed = True
+                                break
+                            all_free = True
+                            for t in need['teachers']:
+                                if teacher_busy[t][d].get(p):
+                                    all_free = False
+                                    break
+                                # Enforce feeding mother even here
+                                if is_feeding_mother(t) and (p == 3 or p == 4):
+                                    other_p = 4 if p == 3 else 3
+                                    if teacher_busy[t][d].get(other_p):
+                                        all_free = False
+                                        break
+                                # Enforce period restrictions even here
+                                if is_teacher_restricted(t, d, p):
+                                    all_free = False
+                                    break
+                            if all_free:
+                                do_place(cd, d, p, need, timetable, teacher_busy, fm_used)
+                                need['left'] -= 1
+                                placed = True
+                                break
+
+                    # Absolute last: only conflict check (1-2 slots max in entire school)
                     if not placed:
                         for ni, need in enumerate(remaining[cd]):
                             if need['left'] <= 0:
