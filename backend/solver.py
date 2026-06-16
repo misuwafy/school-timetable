@@ -554,9 +554,15 @@ def can_place(cd, ni, d, p, need, timetable, teacher_busy, teacher_map, block_he
         if current_today >= max_per_day:
             return False
 
-    # Science: no period 7 (hard)
-    if need['subject'] in ['Physics', 'Chemistry', 'Biology'] and p == 6:
+    # Science: period 7 restrictions
+    # Physics & Chemistry: NO P7 for ALL grades
+    # Biology: NO P7 for grades 8 & 9, ALLOWED for grade 10
+    if need['subject'] in ['Physics', 'Chemistry'] and p == 6:
         return False
+    if need['subject'] == 'Biology' and p == 6:
+        # Check if this is grade 10 (cd starts with "10-")
+        if not cd.startswith('10-'):
+            return False
 
     return True
 
