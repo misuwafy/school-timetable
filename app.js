@@ -1448,7 +1448,8 @@ function runTimetableAlgorithm(data) {
 
         for (const day of dayOrder) {
             const pOrder = [...periodOrder];
-            if (attempt > 5) shuffleArray(pOrder);
+            // Don't shuffle periods - process in order to ensure rules like feeding mothers work
+            // (P4 must be processed before P5 to check correctly)
 
             for (const period of pOrder) {
                 const cdOrder = [...classDivs];
