@@ -204,8 +204,8 @@ def save_timetable(data: dict, db: Session = Depends(get_db)):
 @app.post("/api/generate-timetable")
 def generate_timetable(db: Session = Depends(get_db)):
     """Generate timetable using OR-Tools solver"""
-    from solver import solve_timetable
     from datetime import datetime
+    import traceback
 
     # Get all data
     classes = db.query(SchoolClass).all()
@@ -233,24 +233,31 @@ def generate_timetable(db: Session = Depends(get_db)):
         for t in teachers
     ]
 
-    # Solve
-    timetable = solve_timetable(classes_data, teachers_data)
+    try:
+        from solver import solve_timetable
+        timetable = solve_timetable(classes_data, teachers_data)
+    except Exception as e:
+        error_detail = traceback.format_exc()
+        print(f"Solver error: {error_detail}")
+        raise HTTPException(500, f"Solver error: {str(e)}")
 
     if timetable is None:
-        raise HTTPException(500, "Could not generate a valid timetable. Check constraints.")
+        raise HTTPException(500, "Solver returned no solution. Constraints may be too tight or timeout reached.")
 
     # Save to history
-    db.execute(
-        Timetable.__table__.insert().values(data={"timetable": timetable, "saved_at": datetime.utcnow().isoformat()})
-    )
-
-    # Save as current
-    current = db.query(Timetable).filter(Timetable.id == 1).first()
-    if current:
-        current.data = timetable
-    else:
-        db.add(Timetable(data=timetable))
-    db.commit()
+    try:
+        db.execute(
+            Timetable.__table__.insert().values(data={"timetable": timetable, "saved_at": datetime.utcnow().isoformat()})
+        )
+        # Save as current
+        current = db.query(Timetable).filter(Timetable.id == 1).first()
+        if current:
+            current.data = timetable
+        else:
+            db.add(Timetable(data=timetable))
+        db.commit()
+    except Exception as e:
+        print(f"Save error: {e}")
 
     return {"ok": True, "timetable": timetable}
 

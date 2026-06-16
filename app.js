@@ -1291,7 +1291,8 @@ function generateTimetable() {
             document.getElementById('generationResult').innerHTML = `
                 <div style="background:#fef2f2;padding:16px;border-radius:var(--radius);border:1px solid var(--danger);">
                     <h4 style="color:var(--danger);margin-bottom:8px;"><i class="fas fa-times-circle"></i> Generation Failed</h4>
-                    <p>The solver could not find a valid timetable. This may be due to conflicting constraints. Please check teacher assignments and try again.</p>
+                    <p>${err.message || 'The solver could not find a valid timetable.'}</p>
+                    <p style="font-size:12px;color:var(--text-light);margin-top:8px;">Check Render logs for details.</p>
                 </div>
             `;
         });

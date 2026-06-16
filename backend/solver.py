@@ -257,8 +257,8 @@ def solve_timetable(classes_data, teachers_data):
 
     # Solve
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 120  # 2 minute timeout
-    solver.parameters.num_workers = 4
+    solver.parameters.max_time_in_seconds = 300  # 5 minute timeout
+    solver.parameters.num_workers = 8
 
     status = solver.Solve(model)
 
