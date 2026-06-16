@@ -1541,11 +1541,25 @@ function runTimetableAlgorithm(data) {
                         // Rule 11: Saheer & Yasir - no periods 4,5 on Friday
                         if (FRIDAY_RESTRICTED.includes(t) && day === 'Friday' && (period === 4 || period === 5)) return false;
 
-                        // Max periods per day
+                        // Rule 3: Max periods per day
+                        // Non-IT teachers: max 5/day
+                        // IT teachers: can exceed 5 but must include IT
                         if (!r.isMultiClass && teacherBusy[t]) {
                             const periodsToday = Object.keys(teacherBusy[t][day]).filter(p => teacherBusy[t][day][p]).length;
                             const teacherObj = data.teachers.find(tc => tc.name === t);
-                            if (periodsToday >= (teacherObj?.maxPeriodsPerDay || 6)) return false;
+                            const maxPeriods = teacherObj?.maxPeriodsPerDay || 6;
+                            // Check if this teacher teaches IT (from their assignments)
+                            const teachesIT = remaining[cd].some(s => s.teachers.includes(t) && s.subject === 'IT') ||
+                                Object.values(timetable[cd][day]).some(s => s && s.teacher === t && s.subject === 'IT');
+                            const isITTeacher = needs[cd] && needs[cd].some(n => n.teachers.includes(t) && n.subject === 'IT');
+                            
+                            if (isITTeacher) {
+                                // IT teacher: allow up to maxPeriods (6)
+                                if (periodsToday >= maxPeriods) return false;
+                            } else {
+                                // Non-IT teacher: max 5
+                                if (periodsToday >= 5) return false;
+                            }
                         }
 
                         return true;
