@@ -1538,7 +1538,7 @@ function runTimetableAlgorithm(data) {
                         if (FRIDAY_NO_P4.includes(t) && day === 'Friday' && period === 4) return false;
 
                         // Rule 10: Rashid - no periods 1 and 4 daily
-                        if (t === 'Rashid' && RASHID_NO_PERIODS.includes(period)) return false;
+                        if (t === 'Rashid' && (period === 1 || period === 4)) return false;
 
                         // Rule 11: Saheer & Yasir - no periods 4,5 on Friday
                         if (FRIDAY_RESTRICTED.includes(t) && day === 'Friday' && (period === 4 || period === 5)) return false;
