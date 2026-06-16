@@ -442,7 +442,12 @@ def can_place(cd, ni, d, p, need, timetable, teacher_busy, teacher_map, block_he
 
         # Max periods per day
         t_info = teacher_map.get(t, {})
-        max_per_day = t_info.get('maxPeriodsPerDay') or 6
+        # Rule teachers: strict 5 max. Others: allow up to 6
+        rule_teachers = ['Rashid', 'Bindya', 'Jaleela', 'Shafeedha', 'Saheer', 'Yasir', 'Swalih', 'Fuaad', 'Bavakutty']
+        if t.strip() in rule_teachers:
+            max_per_day = 5
+        else:
+            max_per_day = t_info.get('maxPeriodsPerDay') or 6
         current_today = len(teacher_busy[t][d])
         if current_today >= max_per_day:
             return False
