@@ -1329,6 +1329,7 @@ function generateTimetable() {
 function runTimetableAlgorithm(data) {
     const MULTI_CLASS_SUBJECTS = ['PET', 'Music', 'Art', 'Work Experience'];
     const MAX_PET_PER_SLOT = 5;
+    const MAX_ART_PER_SLOT = 2; // strictly 2 classes max at a time
 
     // Build needs: for each classDiv, what subjects need to be scheduled
     const classDivs = [];
@@ -1439,7 +1440,6 @@ function runTimetableAlgorithm(data) {
         const RASHID_NO_PERIODS = [1, 4]; // daily
         const FRIDAY_RESTRICTED = ['Saheer', 'Yasir']; // no periods 4,5 on Friday
         const NO_PERIOD_1 = ['Bindya']; // no period 1 daily
-        const ART_MAX_SIMULTANEOUS = 2;
         const ART_PREFERRED_PERIODS = [6, 7];
 
         const dayOrder = [...DAYS];
@@ -1479,9 +1479,9 @@ function runTimetableAlgorithm(data) {
                             if (SCIENCE_SOFT_NO.includes(period)) return false; // prefer morning
                         }
 
-                        // Rule 1: Art - max 2 simultaneous, preferred periods 6,7
+                        // Rule 1: Art - strictly max 2 classes simultaneous, preferred periods 6,7
                         if (r.subject === 'Art') {
-                            if (artUsed >= ART_MAX_SIMULTANEOUS) return false;
+                            if (artUsed >= MAX_ART_PER_SLOT) return false;
                         }
 
                         if (r.isMultiClass) {
