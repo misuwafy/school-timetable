@@ -106,6 +106,7 @@ def solve_timetable(classes_data, teachers_data):
         remaining = {cd: [dict(n, left=n['periods']) for n in needs[cd]] for cd in class_divs}
 
         # Step 0: Distribute PET/Art/Music/WE evenly across days with SLOT LIMITS
+        # Art/Music/WE: prefer 1 class at a time first, combine 2 only when needed
         # Track how many multi-class subjects are in each slot
         slot_counts = defaultdict(lambda: defaultdict(int))  # (d, p) -> {subject: count}
         it_lab_slots = defaultdict(int)  # (d, p) -> count of IT lab classes
@@ -115,7 +116,8 @@ def solve_timetable(classes_data, teachers_data):
                 if need['left'] <= 0 or not need['is_multi']:
                     continue
                 subject = need['subject']
-                max_per_slot = MAX_PET_PER_SLOT if subject == 'PET' else 2  # Art/Music/WE = 2
+                # Start with 1 per slot for Art/Music/WE, expand to 2 if needed later
+                max_per_slot = MAX_PET_PER_SLOT if subject == 'PET' else 1
 
                 while need['left'] > 0:
                     placed = False
@@ -126,11 +128,11 @@ def solve_timetable(classes_data, teachers_data):
                         already = sum(1 for pp in range(NUM_PERIODS) if timetable[cd][d].get(pp) and timetable[cd][d][pp]['subject'] == subject)
                         if already >= 1:
                             continue
-                        # PET prefers periods 6,7 (index 5,6), then 5 (index 4), then others
+                        # PET prefers periods 6,7
                         if subject == 'PET':
-                            period_order = [5, 6, 4, 3, 2, 1]  # P6, P7, P5, P4, P3, P2 (skip P1=0)
+                            period_order = [5, 6, 4, 3, 2, 1]
                         else:
-                            period_order = list(range(1, NUM_PERIODS))  # P2-P7
+                            period_order = list(range(1, NUM_PERIODS))
 
                         for p in period_order:
                             if timetable[cd][d].get(p) is not None:
@@ -144,23 +146,33 @@ def solve_timetable(classes_data, teachers_data):
                             break
                         if placed:
                             break
+
                     if not placed:
+                        # Retry with max 2 for Art/Music/WE
+                        if max_per_slot == 1 and subject != 'PET':
+                            max_per_slot = 2
+                            continue
                         break
 
-        # Step 0.5: Class teachers in Period 1 (soft priority)
+        # Step 0.5: Class teachers MUST be Period 1 in their class (attendance)
+        # Strict except for Rashid (who can't be P1) and Block Heads
         ct_entries = list(class_teacher_map.items())
         random.shuffle(ct_entries)
         for cd, ct_name in ct_entries:
             ct_name = ct_name.strip()
-            if not ct_name or ct_name in block_heads:
+            if not ct_name:
                 continue
+            if ct_name in block_heads:
+                continue
+            if ct_name == 'Rashid':
+                continue  # Rashid can't be P1
             # Find a day where P1 is free and teacher is free
             for d in range(NUM_DAYS):
                 if timetable[cd][d].get(0) is not None:
                     continue
                 if teacher_busy[ct_name][d].get(0):
                     continue
-                # Find a subject this class teacher teaches
+                # Find a subject this class teacher teaches in this class
                 for ni, need in enumerate(remaining[cd]):
                     if need['left'] <= 0 or need['is_multi']:
                         continue
@@ -168,7 +180,7 @@ def solve_timetable(classes_data, teachers_data):
                         do_place(cd, d, 0, need, timetable, teacher_busy)
                         need['left'] -= 1
                         break
-                break  # Only place one per attempt for variety
+                # Don't break - try ALL days for class teacher P1
 
         # Step 1: Schedule restricted teachers first
         restricted_teachers_set = set(rule_teachers)
