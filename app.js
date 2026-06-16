@@ -1492,7 +1492,18 @@ function runTimetableAlgorithm(data) {
                         if (r.shared) {
                             return r.teachers.every(t => {
                                 if (!teacherBusy[t]) return true;
-                                return !teacherBusy[t][day][period] && !usedTeachersThisSlot.has(t);
+                                if (teacherBusy[t][day][period]) return false;
+                                if (usedTeachersThisSlot.has(t)) return false;
+                                // Strict rules for shared teachers too
+                                if (t.trim() === 'Rashid' && (period === 1 || period === 4)) return false;
+                                if (t.trim() === 'Bindya' && period === 1) return false;
+                                if ((t.trim() === 'Saheer' || t.trim() === 'Yasir') && day === 'Friday' && (period === 4 || period === 5)) return false;
+                                if ((t.trim() === 'Swalih' || t.trim() === 'Fuaad' || t.trim() === 'Bavakutty') && day === 'Friday' && period === 4) return false;
+                                if ((t.trim() === 'Jaleela' || t.trim() === 'Shafeedha') && (period === 4 || period === 5)) {
+                                    const otherPeriod = period === 4 ? 5 : 4;
+                                    if (teacherBusy[t] && teacherBusy[t][day] && teacherBusy[t][day][otherPeriod]) return false;
+                                }
+                                return true;
                             });
                         }
 
@@ -1619,7 +1630,17 @@ function runTimetableAlgorithm(data) {
                         if (r.shared) {
                             return r.teachers.every(t => {
                                 if (!teacherBusy[t]) return true;
-                                return !teacherBusy[t][day][period];
+                                if (teacherBusy[t][day][period]) return false;
+                                // Strict rules
+                                if (t.trim() === 'Rashid' && (period === 1 || period === 4)) return false;
+                                if (t.trim() === 'Bindya' && period === 1) return false;
+                                if ((t.trim() === 'Saheer' || t.trim() === 'Yasir') && day === 'Friday' && (period === 4 || period === 5)) return false;
+                                if ((t.trim() === 'Swalih' || t.trim() === 'Fuaad' || t.trim() === 'Bavakutty') && day === 'Friday' && period === 4) return false;
+                                if ((t.trim() === 'Jaleela' || t.trim() === 'Shafeedha') && (period === 4 || period === 5)) {
+                                    const otherPeriod = period === 4 ? 5 : 4;
+                                    if (teacherBusy[t] && teacherBusy[t][day] && teacherBusy[t][day][otherPeriod]) return false;
+                                }
+                                return true;
                             });
                         }
 
@@ -1712,6 +1733,14 @@ function runTimetableAlgorithm(data) {
                     }
                     // Check Bindya
                     if (teacher.includes('Bindya') && period === 1) {
+                        bestTimetable[cd][day][period] = null;
+                    }
+                    // Check Saheer & Yasir Friday P4,P5
+                    if ((teacher.includes('Saheer') || teacher.includes('Yasir')) && day === 'Friday' && (period === 4 || period === 5)) {
+                        bestTimetable[cd][day][period] = null;
+                    }
+                    // Check Swalih/Fuaad/Bavakutty Friday P4
+                    if ((teacher.includes('Swalih') || teacher.includes('Fuaad') || teacher.includes('Bavakutty')) && day === 'Friday' && period === 4) {
                         bestTimetable[cd][day][period] = null;
                     }
                 });
