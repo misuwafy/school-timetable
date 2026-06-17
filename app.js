@@ -822,6 +822,15 @@ function renderTeachers() {
         });
     });
 
+    // Build class teacher mapping: teacher -> class divisions
+    const classTeacherOf = {};
+    data.classes.forEach(cls => {
+        if (cls.classTeacher) {
+            if (!classTeacherOf[cls.classTeacher]) classTeacherOf[cls.classTeacher] = [];
+            classTeacherOf[cls.classTeacher].push(`${cls.name}-${cls.divisions[0]}`);
+        }
+    });
+
     return `
         <div class="panel">
             <div class="panel-header">
@@ -845,6 +854,7 @@ function renderTeachers() {
                             <thead>
                                 <tr>
                                     <th>Name</th>
+                                    <th>Class Teacher Of</th>
                                     <th>Assigned Subjects</th>
                                     <th>Total Periods/Week</th>
                                     <th>Block Head</th>
@@ -860,6 +870,7 @@ function renderTeachers() {
                                     return `
                                     <tr data-name="${t.name.toLowerCase()}">
                                         <td><strong>${t.name}</strong></td>
+                                        <td>${classTeacherOf[t.name] ? classTeacherOf[t.name].map(c => `<span class="badge badge-primary">${c}</span>`).join(' ') : '-'}</td>
                                         <td>${t.subjects && t.subjects.length > 0 ? t.subjects.map(s => `<span class="chip">${s}</span>`).join('') : '<span style="color:var(--text-light);font-size:12px;">Not yet assigned</span>'}</td>
                                         <td>
                                             <strong style="color:${overloaded ? 'var(--danger)' : 'var(--text)'};">${total}</strong>
