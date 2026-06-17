@@ -2244,6 +2244,19 @@ async function handleExcelUpload(event) {
     }
 }
 
+// ===== LOGOUT =====
+function logout() {
+    const token = localStorage.getItem('auth_token');
+    if (token) {
+        fetch(`${API_BASE}/logout`, {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+    }
+    localStorage.removeItem('auth_token');
+    window.location.href = '/';
+}
+
 // ===== INIT =====
 showLoading('Loading data...');
 fetchData().then(() => {
