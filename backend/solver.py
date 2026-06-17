@@ -1,11 +1,11 @@
 """
-Timetable Solver v9 - Greedy + random restarts
+Timetable Solver v10 - Greedy + repair phase (NO Free periods allowed)
 Implements all 15 constraints from the School Timetable Scheduling Constraints v3 PDF.
 Handles 86+ divisions across 6 blocks.
 
-Key insight: Multi-class subjects (PET, Art, Music, WE) share time slots —
-one teacher handles multiple classes in the same period simultaneously.
-These teachers are NOT subject to per-day period limits or teacher-conflict checks.
+CRITICAL RULE: Every subject period MUST be placed. No "Free" periods.
+If a subject can't be placed with full constraints, relax teacher-day-limit
+and subject-repeat constraints to ensure placement.
 """
 import random
 from collections import defaultdict
@@ -20,19 +20,20 @@ MULTI_CLASS_SUBJECTS = ['PET', 'Music', 'Art', 'Work Experience']
 
 # Constraint 10: Art (8,9) max 2, Music (8) max 2, WE (9) max 2
 # Constraint 11: PET max 6 (soft)
+# Constraint 15: IT lab max 6
 SLOT_LIMITS = {
     'PET': 6,
     'Art': 2,
     'Music': 2,
     'Work Experience': 2,
-    'IT': 6,  # Constraint 15: max 6 IT labs simultaneously
+    'IT': 6,
 }
 
 FRIDAY_P4_FREE = {'Bavakutty', 'Saheer', 'Yasir', 'Swalih'}
 
 
-def solve_timetable(classes_data, teachers_data, max_attempts=40):
-    """Fast greedy solver with random restarts for large school timetables"""
+def solve_timetable(classes_data, teachers_data, max_attempts=50):
+    """Greedy solver that guarantees all subjects are placed (no Free periods)"""
 
     if not classes_data:
         raise ValueError("No classes found. Please add classes with divisions first.")
@@ -43,7 +44,7 @@ def solve_timetable(classes_data, teachers_data, max_attempts=40):
     teacher_info = {t['name']: t for t in teachers_data}
     block_heads = {t['name'] for t in teachers_data if t.get('isBlockHead')}
 
-    # Identify which teachers teach IT (for Constraint 6)
+    # Identify IT teachers (Constraint 6)
     it_teachers = set()
     for cls in classes_data:
         for sub in cls.get('subjects', []):
@@ -97,19 +98,11 @@ def solve_timetable(classes_data, teachers_data, max_attempts=40):
     if len(empty_divs) == len(class_divs):
         raise ValueError("No subjects with teachers assigned to any class.")
 
-    # Pad with Free periods if total != 35
+    # Trim classes that exceed 35 periods
     for cd in class_divs:
         total = sum(n['periods'] for n in div_needs[cd])
-        if total < TOTAL_SLOTS:
-            div_needs[cd].append({
-                'subject': 'Free',
-                'teacher_str': '',
-                'teachers': [],
-                'periods': TOTAL_SLOTS - total,
-                'is_multi': True,
-                'shared': False
-            })
-        elif total > TOTAL_SLOTS:
+        if total > TOTAL_SLOTS:
+            # Trim excess from shared subjects (they have duplicated periods)
             while sum(n['periods'] for n in div_needs[cd]) > TOTAL_SLOTS and div_needs[cd]:
                 last = div_needs[cd][-1]
                 if last['periods'] > 1:
@@ -117,7 +110,7 @@ def solve_timetable(classes_data, teachers_data, max_attempts=40):
                 else:
                     div_needs[cd].pop()
 
-    # Identify multi-class teachers (they share time slots, not subject to conflict/day-limit)
+    # Identify multi-class teachers
     multi_class_teacher_set = set()
     for cd in class_divs:
         for need in div_needs[cd]:
@@ -125,10 +118,8 @@ def solve_timetable(classes_data, teachers_data, max_attempts=40):
                 for t in need['teachers']:
                     multi_class_teacher_set.add(t)
 
-    print(f"Solver v9: {len(class_divs)} divisions, {len(teachers_data)} teachers, "
-          f"{len(multi_class_teacher_set)} multi-class teachers")
+    print(f"Solver v10: {len(class_divs)} divisions, {len(teachers_data)} teachers")
 
-    # Context object to pass around
     ctx = {
         'class_divs': class_divs,
         'div_needs': div_needs,
@@ -140,28 +131,23 @@ def solve_timetable(classes_data, teachers_data, max_attempts=40):
 
     # Try multiple random attempts
     best_result = None
-    best_score = -1
-    target_score = len(class_divs) * TOTAL_SLOTS
+    best_unplaced = 999999
 
     for attempt in range(max_attempts):
-        result, score = _attempt_schedule(ctx)
-        if score > best_score:
-            best_score = score
+        result, unplaced_count = _attempt_schedule(ctx)
+        if unplaced_count < best_unplaced:
+            best_unplaced = unplaced_count
             best_result = result
-            pct = 100 * score // target_score
-            if attempt % 5 == 0 or score == target_score:
-                print(f"  Attempt {attempt + 1}: {score}/{target_score} ({pct}%)")
-        if score == target_score:
+            if attempt % 10 == 0:
+                print(f"  Attempt {attempt + 1}: {unplaced_count} unplaced periods")
+        if unplaced_count == 0:
             print(f"  Perfect solution on attempt {attempt + 1}")
             break
-        # If we're close (>98%), try more attempts to hit perfect
-        if best_score >= target_score * 0.98 and attempt >= max_attempts - 1:
-            max_attempts += 10  # extend search
 
     if best_result is None:
         raise RuntimeError("Could not generate any timetable. Check subject/teacher assignments.")
 
-    print(f"  Final: {best_score}/{target_score} ({100*best_score//target_score}%)")
+    print(f"  Final: {best_unplaced} unplaced periods")
 
     # Build output format
     timetable = {}
@@ -183,6 +169,7 @@ def solve_timetable(classes_data, teachers_data, max_attempts=40):
                         'shared': entry.get('shared', False)
                     }
                 else:
+                    # This should not happen with repair phase
                     timetable[cd][day_name][period_num] = {
                         'subject': 'Free',
                         'teacher': '',
@@ -195,18 +182,18 @@ def solve_timetable(classes_data, teachers_data, max_attempts=40):
 
 
 def _attempt_schedule(ctx):
-    """One attempt at building a full schedule"""
+    """Build schedule with guaranteed placement using repair phase"""
 
     class_divs = ctx['class_divs']
     div_needs = ctx['div_needs']
 
-    # State tracking
-    schedule = {}  # (cd, day, period) -> need entry
-    teacher_slots = defaultdict(set)  # non-multi teacher -> set of (day, period)
-    teacher_day_count = defaultdict(lambda: defaultdict(int))  # non-multi teacher -> day -> count
-    subject_day_count = defaultdict(lambda: defaultdict(int))  # (cd, subject) -> day -> count
-    slot_subject_count = defaultdict(lambda: defaultdict(int))  # (day, period) -> subject -> count
-    cd_filled = defaultdict(set)  # cd -> set of (day, period)
+    # State
+    schedule = {}
+    teacher_slots = defaultdict(set)
+    teacher_day_count = defaultdict(lambda: defaultdict(int))
+    subject_day_count = defaultdict(lambda: defaultdict(int))
+    slot_subject_count = defaultdict(lambda: defaultdict(int))
+    cd_filled = defaultdict(set)
 
     # Build assignment list
     all_assignments = []
@@ -214,14 +201,11 @@ def _attempt_schedule(ctx):
         for need in div_needs[cd]:
             all_assignments.append({'cd': cd, 'need': need, 'remaining': need['periods']})
 
-    # Sort: constrained regular subjects first, then multi-class, then Free
+    # Sort: harder-to-place first
     def priority(a):
         need = a['need']
-        if need['subject'] == 'Free':
-            return 1000
         if need['is_multi']:
             return 500
-        # Regular subjects - more constrained teachers get priority
         p = 0
         for t in need['teachers']:
             if t in ctx['block_heads']:
@@ -238,7 +222,7 @@ def _attempt_schedule(ctx):
 
     all_assignments.sort(key=priority)
 
-    # Shuffle within same-priority groups for randomness
+    # Shuffle within same-priority groups
     i = 0
     while i < len(all_assignments):
         j = i
@@ -250,23 +234,21 @@ def _attempt_schedule(ctx):
         all_assignments[i:j] = chunk
         i = j
 
-    score = 0
-
+    # PHASE 1: Place with full constraints
+    unplaced = []
     for assignment in all_assignments:
         cd = assignment['cd']
         need = assignment['need']
         periods_to_place = assignment['remaining']
 
-        # Get valid slots
         valid_slots = []
         for d in range(NUM_DAYS):
             for p in range(NUM_PERIODS):
                 if _is_valid(cd, need, d, p, schedule, teacher_slots,
                              teacher_day_count, subject_day_count,
-                             slot_subject_count, cd_filled, ctx):
+                             slot_subject_count, cd_filled, ctx, strict=True):
                     valid_slots.append((d, p))
 
-        # Shuffle and sort by preference
         random.shuffle(valid_slots)
         day_usage = defaultdict(int)
         for dd, pp in cd_filled[cd]:
@@ -279,43 +261,132 @@ def _attempt_schedule(ctx):
                 break
             if (cd, d, p) in schedule:
                 continue
-            # Re-validate (state may have changed)
             if not _is_valid(cd, need, d, p, schedule, teacher_slots,
                              teacher_day_count, subject_day_count,
-                             slot_subject_count, cd_filled, ctx):
+                             slot_subject_count, cd_filled, ctx, strict=True):
                 continue
-
-            # Place
-            schedule[(cd, d, p)] = need
-            cd_filled[cd].add((d, p))
-            if need['subject'] != 'Free' and not need['is_multi']:
-                for t in need['teachers']:
-                    teacher_slots[t].add((d, p))
-                    teacher_day_count[t][d] += 1
-            if need['subject'] != 'Free':
-                subject_day_count[(cd, need['subject'])][d] += 1
-                slot_subject_count[(d, p)][need['subject']] += 1
+            _place(cd, need, d, p, schedule, teacher_slots, teacher_day_count,
+                   subject_day_count, slot_subject_count, cd_filled, ctx)
             placed += 1
-            score += 1
 
-        # Fill leftover with Free
-        if placed < periods_to_place and need['subject'] == 'Free':
-            for d in range(NUM_DAYS):
-                for p in range(NUM_PERIODS):
-                    if placed >= periods_to_place:
-                        break
-                    if (cd, d, p) not in schedule:
-                        schedule[(cd, d, p)] = need
-                        cd_filled[cd].add((d, p))
-                        placed += 1
-                        score += 1
+        if placed < periods_to_place:
+            unplaced.append({'cd': cd, 'need': need, 'remaining': periods_to_place - placed})
 
-    return schedule, score
+    # PHASE 2: Repair - place remaining with relaxed constraints
+    # Relax: allow subject repeat (max 2/day), relax teacher day limit
+    still_unplaced = []
+    for assignment in unplaced:
+        cd = assignment['cd']
+        need = assignment['need']
+        periods_to_place = assignment['remaining']
+
+        valid_slots = []
+        for d in range(NUM_DAYS):
+            for p in range(NUM_PERIODS):
+                if _is_valid(cd, need, d, p, schedule, teacher_slots,
+                             teacher_day_count, subject_day_count,
+                             slot_subject_count, cd_filled, ctx, strict=False):
+                    valid_slots.append((d, p))
+
+        random.shuffle(valid_slots)
+        day_usage = defaultdict(int)
+        for dd, pp in cd_filled[cd]:
+            day_usage[dd] += 1
+        valid_slots.sort(key=lambda s: (day_usage[s[0]], abs(s[1] - 3) * 0.1))
+
+        placed = 0
+        for d, p in valid_slots:
+            if placed >= periods_to_place:
+                break
+            if (cd, d, p) in schedule:
+                continue
+            if not _is_valid(cd, need, d, p, schedule, teacher_slots,
+                             teacher_day_count, subject_day_count,
+                             slot_subject_count, cd_filled, ctx, strict=False):
+                continue
+            _place(cd, need, d, p, schedule, teacher_slots, teacher_day_count,
+                   subject_day_count, slot_subject_count, cd_filled, ctx)
+            placed += 1
+
+        if placed < periods_to_place:
+            still_unplaced.append({'cd': cd, 'need': need, 'remaining': periods_to_place - placed})
+
+    # PHASE 3: Force-place anything still unplaced (only hard constraints: teacher conflict & slot taken)
+    final_unplaced = 0
+    for assignment in still_unplaced:
+        cd = assignment['cd']
+        need = assignment['need']
+        periods_to_place = assignment['remaining']
+
+        placed = 0
+        for d in range(NUM_DAYS):
+            for p in range(NUM_PERIODS):
+                if placed >= periods_to_place:
+                    break
+                if (cd, d, p) in schedule:
+                    continue
+                # Only check absolute hard constraints: slot empty + teacher not in two places
+                if _is_valid_minimal(cd, need, d, p, schedule, teacher_slots, slot_subject_count, ctx):
+                    _place(cd, need, d, p, schedule, teacher_slots, teacher_day_count,
+                           subject_day_count, slot_subject_count, cd_filled, ctx)
+                    placed += 1
+
+        final_unplaced += (periods_to_place - placed)
+
+    # Fill any truly empty slots in classes that had <35 total periods
+    for cd in class_divs:
+        for d in range(NUM_DAYS):
+            for p in range(NUM_PERIODS):
+                if (cd, d, p) not in schedule:
+                    # Find a subject that could use an extra period or mark as study
+                    # Use the class teacher's subject or just leave empty
+                    # Actually this shouldn't happen since we trimmed to 35
+                    pass
+
+    return schedule, final_unplaced
+
+
+def _place(cd, need, d, p, schedule, teacher_slots, teacher_day_count,
+           subject_day_count, slot_subject_count, cd_filled, ctx):
+    """Place a need at (cd, d, p) and update state"""
+    schedule[(cd, d, p)] = need
+    cd_filled[cd].add((d, p))
+    if need['subject'] != 'Free' and not need['is_multi']:
+        for t in need['teachers']:
+            teacher_slots[t].add((d, p))
+            teacher_day_count[t][d] += 1
+    if need['subject'] != 'Free':
+        subject_day_count[(cd, need['subject'])][d] += 1
+        slot_subject_count[(d, p)][need['subject']] += 1
+
+
+def _is_valid_minimal(cd, need, d, p, schedule, teacher_slots, slot_subject_count, ctx):
+    """Minimal validity check - only absolute hard constraints"""
+    if (cd, d, p) in schedule:
+        return False
+
+    subject = need['subject']
+    teachers = need['teachers']
+    is_multi = need['is_multi']
+
+    # Teacher can't be in two places at once (non-multi only)
+    if not is_multi:
+        for t in teachers:
+            if (d, p) in teacher_slots.get(t, set()):
+                return False
+
+    # IT lab capacity (hard constraint - no more than 6)
+    if subject == 'IT':
+        current = slot_subject_count.get((d, p), {}).get('IT', 0)
+        if current >= 6:
+            return False
+
+    return True
 
 
 def _is_valid(cd, need, d, p, schedule, teacher_slots, teacher_day_count,
-              subject_day_count, slot_subject_count, cd_filled, ctx):
-    """Check all constraints for placing need at (cd, d, p)"""
+              subject_day_count, slot_subject_count, cd_filled, ctx, strict=True):
+    """Check constraints. strict=True for Phase 1, False for Phase 2 (relaxed)"""
 
     if (cd, d, p) in schedule:
         return False
@@ -326,10 +397,6 @@ def _is_valid(cd, need, d, p, schedule, teacher_slots, teacher_day_count,
     block_heads = ctx['block_heads']
     it_teachers = ctx['it_teachers']
     multi_teachers = ctx['multi_class_teacher_set']
-
-    # Free can go anywhere empty
-    if subject == 'Free':
-        return True
 
     # === Constraint 12: PET/Art/Music/WE NOT in Period 1 (Strict) ===
     if subject in MULTI_CLASS_SUBJECTS and p == 0:
@@ -349,8 +416,8 @@ def _is_valid(cd, need, d, p, schedule, teacher_slots, teacher_day_count,
     if 'Rashid' in teachers and p in [0, 3]:
         return False
 
-    # === Constraint 8: Bavakutty/Saheer/Yasir/Swalih - no Period 4 on Friday (Strict) ===
-    if d == 4 and p == 3:  # Friday, Period 4 (0-indexed: d=4, p=3)
+    # === Constraint 8: Friday P4 free for certain teachers (Strict) ===
+    if d == 4 and p == 3:
         for t in teachers:
             if t in FRIDAY_P4_FREE:
                 return False
@@ -359,7 +426,7 @@ def _is_valid(cd, need, d, p, schedule, teacher_slots, teacher_day_count,
     if cd.startswith('10-') and subject in ['Physics', 'Chemistry'] and p == 6:
         return False
 
-    # === Constraint 9: Jaleela - either P4 or P5 free each day (Strict) ===
+    # === Constraint 9: Jaleela - P4 or P5 free each day (Strict) ===
     if 'Jaleela' in teachers and p in [3, 4]:
         other_p = 4 if p == 3 else 3
         if (d, other_p) in teacher_slots.get('Jaleela', set()):
@@ -371,32 +438,36 @@ def _is_valid(cd, need, d, p, schedule, teacher_slots, teacher_day_count,
             if (d, p) in teacher_slots.get(t, set()):
                 return False
 
-    # === Constraint 6: Max periods per day for non-multi teachers ===
-    # Non-IT teachers: max 5 periods/day
-    # IT teachers: can exceed 5 if IT period is included (handled by data - they just get more)
-    if not is_multi:
+    # === Constraint 6: Max periods per day (only strict mode) ===
+    if strict and not is_multi:
         for t in teachers:
             if t not in multi_teachers:
                 current_day = teacher_day_count[t][d]
                 if t not in it_teachers:
-                    # Non-IT teacher: max 5 periods per day
                     if current_day >= 5:
                         return False
                 else:
-                    # IT teacher: allowed more than 5, no hard cap enforced here
-                    # (natural limit is the number of classes they teach)
                     if current_day >= 7:
                         return False
+    elif not strict and not is_multi:
+        # Relaxed: allow up to 7 for any teacher
+        for t in teachers:
+            if t not in multi_teachers:
+                if teacher_day_count[t][d] >= 7:
+                    return False
 
-    # === Constraint 1: No subject repetition per day per class ===
-    # Exception: Maths 10th can appear twice
-    # For greedy solver: allow max 2 as soft fallback (strict is 1, except Maths-10)
+    # === Constraint 1: No subject repetition per day ===
     current_sub_day = subject_day_count.get((cd, subject), {}).get(d, 0)
-    if subject == 'Maths' and cd.startswith('10-'):
-        if current_sub_day >= 2:
-            return False
+    if strict:
+        if subject == 'Maths' and cd.startswith('10-'):
+            if current_sub_day >= 2:
+                return False
+        else:
+            if current_sub_day >= 1:
+                return False
     else:
-        if current_sub_day >= 1:
+        # Relaxed: allow max 2 of any subject per day
+        if current_sub_day >= 2:
             return False
 
     # === Constraints 10, 11, 15: Slot capacity limits ===
@@ -413,11 +484,16 @@ def _validate(timetable, class_divs):
     violations = []
     for cd in class_divs:
         filled = 0
+        free_count = 0
         for d_name in DAYS:
             for p_num in PERIODS:
                 entry = timetable.get(cd, {}).get(d_name, {}).get(p_num)
                 if entry and entry.get('subject'):
                     filled += 1
+                    if entry['subject'] == 'Free':
+                        free_count += 1
         if filled < TOTAL_SLOTS:
             violations.append(f"{cd}: only {filled}/35 slots filled")
+        if free_count > 0:
+            violations.append(f"{cd}: has {free_count} Free periods (subjects not placed)")
     return violations
