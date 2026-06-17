@@ -327,7 +327,7 @@ def _force_place(cd, need, count, schedule, teacher_slots, slot_subject_count, c
     """Force-place with swaps if needed. GUARANTEES placement."""
     remaining = count
 
-    # Try empty slots (only hard constraint: teacher not in two places at once)
+    # Try empty slots (only hard constraint: teacher not in two places at once + Rashid rule)
     for d in range(NUM_DAYS):
         if remaining <= 0:
             break
@@ -342,6 +342,9 @@ def _force_place(cd, need, count, schedule, teacher_slots, slot_subject_count, c
                     if (d, p) in teacher_slots.get(t, set()):
                         can = False
                         break
+            # HARD: Rashid never P1 or P4
+            if can and 'Rashid' in need['teachers'] and p in [0, 3]:
+                can = False
             if can:
                 _do_place(cd, need, d, p, schedule, teacher_slots, slot_subject_count)
                 remaining -= 1
@@ -359,6 +362,9 @@ def _force_place(cd, need, count, schedule, teacher_slots, slot_subject_count, c
                 existing = schedule[(cd, d, p)]
                 if existing['subject'] == need['subject']:
                     continue
+                # HARD: Rashid can't go to P1 or P4
+                if 'Rashid' in need['teachers'] and p in [0, 3]:
+                    continue
                 # Can need's teacher do (d,p)?
                 can_need = True
                 if not need['is_multi']:
@@ -375,6 +381,9 @@ def _force_place(cd, need, count, schedule, teacher_slots, slot_subject_count, c
                         break
                     for p2 in range(NUM_PERIODS):
                         if (cd, d2, p2) in schedule:
+                            continue
+                        # HARD: Rashid can't go to P1 or P4
+                        if 'Rashid' in existing['teachers'] and p2 in [0, 3]:
                             continue
                         can_ex = True
                         if not existing['is_multi']:
