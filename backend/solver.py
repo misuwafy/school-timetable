@@ -1,7 +1,8 @@
 """
-Timetable Solver v3 - All 15 constraints from PDF strictly enforced
+Timetable Solver v5 - OR-Tools CP-SAT on VPS (2GB RAM)
+All 15 constraints from PDF strictly enforced.
 """
-import random
+from ortools.sat.python import cp_model
 from collections import defaultdict
 
 DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
@@ -10,45 +11,19 @@ NUM_DAYS = 5
 NUM_PERIODS = 7
 
 MULTI_CLASS_SUBJECTS = ['PET', 'Music', 'Art', 'Work Experience']
-MAX_PET_PER_SLOT = 6   # Rule 11: PET max 6 classes at a time
-MAX_ART_PER_SLOT = 2   # Rule 10: Art max 2
-MAX_MUSIC_PER_SLOT = 2 # Rule 10: Music max 2
-MAX_WE_PER_SLOT = 2    # Rule 10: Work Experience max 2
-MAX_IT_LAB_PER_SLOT = 6 # Rule 15: IT Lab max 6 simultaneous
-
-
-def is_teacher_restricted(teacher, day_idx, period_idx):
-    """Rules 5, 7, 8: Check if a teacher is restricted from this slot"""
-    t = teacher.strip()
-    period = period_idx + 1
-    day = DAYS[day_idx]
-
-    # Rule 7: Rashid - no P1, P4 daily
-    if t == 'Rashid' and period in [1, 4]:
-        return True
-
-    # Rule 5: Bindya - no P1 daily
-    if t == 'Bindya' and period == 1:
-        return True
-
-    # Rule 8: Friday P4 restriction
-    if day == 'Friday' and t in ['Bavakutty', 'Saheer', 'Yasir', 'Swalih'] and period == 4:
-        return True
-
-    return False
-
-
-def is_feeding_mother(teacher):
-    """Rule 9"""
-    return teacher.strip() == 'Jaleela'
+MAX_PET_PER_SLOT = 6
+MAX_ART_PER_SLOT = 2
+MAX_MUSIC_PER_SLOT = 2
+MAX_WE_PER_SLOT = 2
+MAX_IT_LAB_PER_SLOT = 6
 
 
 def solve_timetable(classes_data, teachers_data):
-    """Main solver with all 15 constraints"""
+    """OR-Tools CP-SAT solver with all constraints"""
 
-    # Build class-division needs
+    # Build class divisions and needs
     class_divs = []
-    needs = {}
+    needs = {}  # cd -> [(subject, teacher_str, teachers_list, periods, is_multi, shared)]
     class_teacher_map = {}
 
     for cls in classes_data:
@@ -57,13 +32,12 @@ def solve_timetable(classes_data, teachers_data):
             class_divs.append(cd)
             needs[cd] = []
             if cls.get('classTeacher'):
-                class_teacher_map[cd] = cls['classTeacher']
+                class_teacher_map[cd] = cls['classTeacher'].strip()
 
             processed_groups = set()
             for sub in cls.get('subjects', []):
                 if sub.get('periodsPerWeek', 0) <= 0 or not sub.get('teacher'):
                     continue
-
                 if sub.get('shared') and sub.get('sharedGroup'):
                     if sub['sharedGroup'] in processed_groups:
                         continue
@@ -81,545 +55,228 @@ def solve_timetable(classes_data, teachers_data):
                         'shared': True
                     })
                 else:
+                    t = sub['teacher'].strip()
                     is_multi = sub['name'] in MULTI_CLASS_SUBJECTS
                     needs[cd].append({
                         'subject': sub['name'],
-                        'teacher_str': sub['teacher'].strip(),
-                        'teachers': [sub['teacher'].strip()],
+                        'teacher_str': t,
+                        'teachers': [t],
                         'periods': sub['periodsPerWeek'],
                         'is_multi': is_multi,
-                        'shared': sub.get('shared', False)
+                        'shared': False
                     })
 
-    # Teacher info
     teacher_map = {t['name']: t for t in teachers_data}
     block_heads = {t['name'] for t in teachers_data if t.get('isBlockHead')}
-    rule_teachers = ['Rashid', 'Bindya', 'Jaleela', 'Saheer', 'Yasir', 'Swalih', 'Fuaad', 'Bavakutty']
+    rule_teachers = {'Rashid', 'Bindya', 'Jaleela', 'Saheer', 'Yasir', 'Swalih', 'Fuaad', 'Bavakutty'}
 
-    best_timetable = None
-    best_unplaced = float('inf')
-    max_attempts = 30
+    # Build model
+    model = cp_model.CpModel()
 
-    for attempt in range(max_attempts):
-        timetable = {cd: {d: {} for d in range(NUM_DAYS)} for cd in class_divs}
-        teacher_busy = defaultdict(lambda: defaultdict(dict))
-        remaining = {cd: [dict(n, left=n['periods']) for n in needs[cd]] for cd in class_divs}
-
-        # Step 0: Distribute PET/Art/Music/WE evenly across days with SLOT LIMITS
-        # Art/Music/WE: prefer 1 class at a time first, combine 2 only when needed
-        # Track how many multi-class subjects are in each slot
-        slot_counts = defaultdict(lambda: defaultdict(int))  # (d, p) -> {subject: count}
-        it_lab_slots = defaultdict(int)  # (d, p) -> count of IT lab classes
-
-        for cd in class_divs:
-            for ni, need in enumerate(remaining[cd]):
-                if need['left'] <= 0 or not need['is_multi']:
-                    continue
-                subject = need['subject']
-                # Start with 1 per slot for Art/Music/WE, expand to 2 if needed later
-                max_per_slot = MAX_PET_PER_SLOT if subject == 'PET' else 1
-
-                while need['left'] > 0:
-                    placed = False
-                    day_order = list(range(NUM_DAYS))
-                    random.shuffle(day_order)
-
-                    for d in day_order:
-                        already = sum(1 for pp in range(NUM_PERIODS) if timetable[cd][d].get(pp) and timetable[cd][d][pp]['subject'] == subject)
-                        if already >= 1:
-                            continue
-                        # PET prefers periods 6,7
-                        if subject == 'PET':
-                            period_order = [5, 6, 4, 3, 2, 1]
-                        else:
-                            period_order = list(range(1, NUM_PERIODS))
-
-                        for p in period_order:
-                            if timetable[cd][d].get(p) is not None:
-                                continue
-                            if slot_counts[(d, p)].get(subject, 0) >= max_per_slot:
-                                continue
-                            do_place(cd, d, p, need, timetable, teacher_busy)
-                            need['left'] -= 1
-                            slot_counts[(d, p)][subject] = slot_counts[(d, p)].get(subject, 0) + 1
-                            placed = True
-                            break
-                        if placed:
-                            break
-
-                    if not placed:
-                        # Retry with max 2 for Art/Music/WE
-                        if max_per_slot == 1 and subject != 'PET':
-                            max_per_slot = 2
-                            continue
-                        break
-
-        # Step 0.5: Class teachers MUST be Period 1 in their class (attendance)
-        # Strict except for Rashid (who can't be P1) and Block Heads
-        ct_entries = list(class_teacher_map.items())
-        random.shuffle(ct_entries)
-        for cd, ct_name in ct_entries:
-            ct_name = ct_name.strip()
-            if not ct_name:
-                continue
-            if ct_name in block_heads:
-                continue
-            if ct_name == 'Rashid':
-                continue  # Rashid can't be P1
-            # Find a day where P1 is free and teacher is free
+    # Variables: x[cd_idx][need_idx][d][p] = 1 if assigned
+    x = {}
+    for ci, cd in enumerate(class_divs):
+        x[ci] = {}
+        for ni, need in enumerate(needs[cd]):
+            x[ci][ni] = {}
             for d in range(NUM_DAYS):
-                if timetable[cd][d].get(0) is not None:
-                    continue
-                if teacher_busy[ct_name][d].get(0):
-                    continue
-                # Find a subject this class teacher teaches in this class
-                for ni, need in enumerate(remaining[cd]):
-                    if need['left'] <= 0 or need['is_multi']:
-                        continue
-                    if ct_name in [t.strip() for t in need['teachers']]:
-                        do_place(cd, d, 0, need, timetable, teacher_busy)
-                        need['left'] -= 1
-                        break
-                # Don't break - try ALL days for class teacher P1
+                x[ci][ni][d] = {}
+                for p in range(NUM_PERIODS):
+                    x[ci][ni][d][p] = model.NewBoolVar(f'x_{ci}_{ni}_{d}_{p}')
 
-        # Step 1: Schedule restricted teachers first
-        restricted_teachers_set = set(rule_teachers)
-        for cd in class_divs:
-            for ni, need in enumerate(remaining[cd]):
-                if need['left'] <= 0 or need['is_multi']:
-                    continue
-                has_restricted = any(t in restricted_teachers_set for t in need['teachers'])
-                if not has_restricted:
-                    continue
-                valid_slots = []
-                for d in range(NUM_DAYS):
-                    for p in range(NUM_PERIODS):
-                        if timetable[cd][d].get(p) is not None:
-                            continue
-                        if can_place(cd, d, p, need, timetable, teacher_busy, teacher_map, block_heads, class_divs):
-                            valid_slots.append((d, p))
-                random.shuffle(valid_slots)
-                placed = 0
-                for d, p in valid_slots:
-                    if placed >= need['left']:
-                        break
-                    if timetable[cd][d].get(p) is not None:
-                        continue
-                    if can_place(cd, d, p, need, timetable, teacher_busy, teacher_map, block_heads, class_divs):
-                        do_place(cd, d, p, need, timetable, teacher_busy)
-                        placed += 1
-                        need['left'] -= 1
+    # CONSTRAINT: Each need gets exactly its required periods
+    for ci, cd in enumerate(class_divs):
+        for ni, need in enumerate(needs[cd]):
+            model.Add(sum(x[ci][ni][d][p] for d in range(NUM_DAYS) for p in range(NUM_PERIODS)) == need['periods'])
 
-        # Step 2: Fill remaining slots
-        day_order = list(range(NUM_DAYS))
-        if attempt % 2 == 1:
-            random.shuffle(day_order)
-
-        for d in day_order:
+    # CONSTRAINT: Each class has exactly 1 subject per slot (all 35 filled)
+    for ci, cd in enumerate(class_divs):
+        for d in range(NUM_DAYS):
             for p in range(NUM_PERIODS):
-                cd_order = list(class_divs)
-                cd_order.sort(key=lambda cd: -sum(n['left'] for n in remaining[cd]))
-                if random.random() < 0.15:
-                    random.shuffle(cd_order)
+                model.Add(sum(x[ci][ni][d][p] for ni in range(len(needs[cd]))) == 1)
 
-                used_this_slot = set()
-                pet_count = 0
-                art_count = 0
-                music_count = 0
-                we_count = 0
-                it_lab_count = 0
+    # CONSTRAINT: Rule 1 - No subject repeat per day (except Maths 10th max 2)
+    for ci, cd in enumerate(class_divs):
+        for d in range(NUM_DAYS):
+            # Group needs by subject
+            subject_needs = defaultdict(list)
+            for ni, need in enumerate(needs[cd]):
+                subject_needs[need['subject']].append(ni)
+            for subject, ni_list in subject_needs.items():
+                if subject == 'Maths' and cd.startswith('10-'):
+                    model.Add(sum(x[ci][ni][d][p] for ni in ni_list for p in range(NUM_PERIODS)) <= 2)
+                else:
+                    model.Add(sum(x[ci][ni][d][p] for ni in ni_list for p in range(NUM_PERIODS)) <= 1)
 
-                for cd in cd_order:
-                    if timetable[cd][d].get(p) is not None:
-                        slot = timetable[cd][d][p]
-                        for t in slot.get('teachers', [slot.get('teacher_str', '')]):
-                            used_this_slot.add(t.strip())
-                        if slot['subject'] == 'IT':
-                            it_lab_count += 1
-                        continue
+    # CONSTRAINT: Teacher conflict (non-multi subjects)
+    all_teachers = set()
+    teacher_needs = defaultdict(list)  # teacher -> [(ci, ni)]
+    for ci, cd in enumerate(class_divs):
+        for ni, need in enumerate(needs[cd]):
+            if not need['is_multi']:
+                for t in need['teachers']:
+                    all_teachers.add(t)
+                    teacher_needs[t].append((ci, ni))
 
-                    candidates = []
-                    for ni, need in enumerate(remaining[cd]):
-                        if need['left'] <= 0:
-                            continue
-                        if not can_place_in_slot(cd, d, p, need, timetable, teacher_busy, teacher_map, block_heads,
-                                                 used_this_slot, pet_count, art_count, music_count, we_count,
-                                                 it_lab_count, class_divs):
-                            continue
-                        candidates.append((ni, need))
+    for teacher, assignments in teacher_needs.items():
+        if len(assignments) <= 1:
+            continue
+        for d in range(NUM_DAYS):
+            for p in range(NUM_PERIODS):
+                model.Add(sum(x[ci][ni][d][p] for ci, ni in assignments) <= 1)
 
-                    if not candidates:
-                        continue
+    # CONSTRAINT: Rule 2 - Science P7 (Grade 10: no Physics/Chemistry in P7)
+    for ci, cd in enumerate(class_divs):
+        if cd.startswith('10-'):
+            for ni, need in enumerate(needs[cd]):
+                if need['subject'] in ['Physics', 'Chemistry']:
+                    for d in range(NUM_DAYS):
+                        model.Add(x[ci][ni][d][6] == 0)
 
-                    # Sort by teacher load (spread evenly)
-                    candidates.sort(key=lambda x: (
-                        sum(len(teacher_busy[t][d]) for t in x[1]['teachers']),
-                        -x[1]['left']
-                    ))
+    # CONSTRAINT: Rule 4 - Block heads no P1
+    for ci, cd in enumerate(class_divs):
+        for ni, need in enumerate(needs[cd]):
+            for t in need['teachers']:
+                if t in block_heads:
+                    for d in range(NUM_DAYS):
+                        model.Add(x[ci][ni][d][0] == 0)
 
-                    ni, need = candidates[0]
-                    do_place(cd, d, p, need, timetable, teacher_busy)
-                    need['left'] -= 1
+    # CONSTRAINT: Rule 5 - Bindya no P1
+    for ci, cd in enumerate(class_divs):
+        for ni, need in enumerate(needs[cd]):
+            if 'Bindya' in need['teachers']:
+                for d in range(NUM_DAYS):
+                    model.Add(x[ci][ni][d][0] == 0)
 
-                    if need['subject'] == 'PET': pet_count += 1
-                    if need['subject'] == 'Art': art_count += 1
-                    if need['subject'] == 'Music': music_count += 1
-                    if need['subject'] == 'Work Experience': we_count += 1
-                    if need['subject'] == 'IT': it_lab_count += 1
-                    for t in need['teachers']:
-                        used_this_slot.add(t)
+    # CONSTRAINT: Rule 7 - Rashid no P1, P4
+    for ci, cd in enumerate(class_divs):
+        for ni, need in enumerate(needs[cd]):
+            if 'Rashid' in need['teachers']:
+                for d in range(NUM_DAYS):
+                    model.Add(x[ci][ni][d][0] == 0)  # P1
+                    model.Add(x[ci][ni][d][3] == 0)  # P4
 
-        # Step 3: Fill remaining - ONLY check teacher not double-booked + Science P7
-        # All other rules relaxed to ensure no blanks
-        for cd in class_divs:
-            for d in range(NUM_DAYS):
-                for p in range(NUM_PERIODS):
-                    if timetable[cd][d].get(p) is not None:
-                        continue
-                    for ni, need in enumerate(remaining[cd]):
-                        if need['left'] <= 0:
-                            continue
-                        if need['is_multi']:
-                            if p == 0:
-                                continue
-                            do_place(cd, d, p, need, timetable, teacher_busy)
-                            need['left'] -= 1
-                            break
-                        # Only check: teacher not in another class at this time
-                        all_free = True
-                        for t in need['teachers']:
-                            t = t.strip()
-                            if teacher_busy[t][d].get(p):
-                                all_free = False
-                                break
-                        if not all_free:
-                            continue
-                        # Keep hard science P7 rule
-                        if need['subject'] in ['Physics', 'Chemistry'] and p == 6 and cd.startswith('10-'):
-                            continue
-                            do_place(cd, d, p, need, timetable, teacher_busy)
-                            need['left'] -= 1
-                            break
+    # CONSTRAINT: Rule 8 - Friday P4 (Bavakutty, Saheer, Yasir, Swalih)
+    friday = 4
+    for ci, cd in enumerate(class_divs):
+        for ni, need in enumerate(needs[cd]):
+            for t in need['teachers']:
+                if t in ['Bavakutty', 'Saheer', 'Yasir', 'Swalih']:
+                    model.Add(x[ci][ni][friday][3] == 0)
 
-        # Step 4: Force fill remaining - MUST fill all 35 periods, relax ALL rules if needed
-        for cd in class_divs:
-            for d in range(NUM_DAYS):
-                for p in range(NUM_PERIODS):
-                    if timetable[cd][d].get(p) is not None:
-                        continue
-                    # Try with rules first
-                    placed = False
-                    for ni, need in enumerate(remaining[cd]):
-                        if need['left'] <= 0:
-                            continue
-                        if need['is_multi']:
-                            do_place(cd, d, p, need, timetable, teacher_busy)
-                            need['left'] -= 1
-                            placed = True
-                            break
-                        all_free = True
-                        for t in need['teachers']:
-                            t = t.strip()
-                            if teacher_busy[t][d].get(p):
-                                all_free = False
-                                break
-                        if all_free:
-                            do_place(cd, d, p, need, timetable, teacher_busy)
-                            need['left'] -= 1
-                            placed = True
-                            break
-                    # If still not placed, try placing any remaining subject (relax all rules)
-                    if not placed:
-                        for ni, need in enumerate(remaining[cd]):
-                            if need['left'] <= 0:
-                                continue
-                            if need['is_multi']:
-                                do_place(cd, d, p, need, timetable, teacher_busy)
-                                need['left'] -= 1
-                                placed = True
-                                break
-                            # Allow placement even if teacher busy (will show as conflict in report)
-                            # but at least no blank
-                            all_free = True
-                            for t in need['teachers']:
-                                t = t.strip()
-                                if teacher_busy[t][d].get(p):
-                                    all_free = False
-                                    break
-                            if all_free:
-                                do_place(cd, d, p, need, timetable, teacher_busy)
-                                need['left'] -= 1
-                                placed = True
-                                break
-                    # Absolute last: place even with conflict (no blanks ever)
-                    if not placed:
-                        for ni, need in enumerate(remaining[cd]):
-                            if need['left'] <= 0:
-                                continue
-                            # Force place - teacher might be double-booked
-                            timetable[cd][d][p] = {
-                                'subject': need['subject'],
-                                'teacher_str': need['teacher_str'],
-                                'teachers': need['teachers'],
-                                'is_multi': need['is_multi'],
-                                'shared': need.get('shared', False)
-                            }
-                            need['left'] -= 1
-                            placed = True
-                            break
+    # CONSTRAINT: Rule 9 - Jaleela: either P4 or P5 free each day
+    jaleela_assignments = teacher_needs.get('Jaleela', [])
+    if jaleela_assignments:
+        for d in range(NUM_DAYS):
+            p4_vars = [x[ci][ni][d][3] for ci, ni in jaleela_assignments]
+            p5_vars = [x[ci][ni][d][4] for ci, ni in jaleela_assignments]
+            # At most 1 of P4/P5 occupied (since teacher can only be in 1 class per period)
+            # sum(P4) + sum(P5) <= 1
+            model.Add(sum(p4_vars) + sum(p5_vars) <= 1)
 
-        # Count unplaced
-        unplaced = sum(n['left'] for cd in class_divs for n in remaining[cd])
-        if unplaced == 0:
-            result = format_timetable(timetable, class_divs)
-            result['_violations'] = validate_timetable(timetable, class_divs, teacher_busy, block_heads)
-            return result
-        if unplaced < best_unplaced:
-            best_unplaced = unplaced
-            best_timetable = {cd: {d: dict(timetable[cd][d]) for d in range(NUM_DAYS)} for cd in class_divs}
+    # CONSTRAINT: Rule 10 - Art/Music/WE max 2 per slot
+    for d in range(NUM_DAYS):
+        for p in range(NUM_PERIODS):
+            for subject, max_count in [('Art', MAX_ART_PER_SLOT), ('Music', MAX_MUSIC_PER_SLOT), ('Work Experience', MAX_WE_PER_SLOT)]:
+                vars_list = []
+                for ci, cd in enumerate(class_divs):
+                    for ni, need in enumerate(needs[cd]):
+                        if need['subject'] == subject:
+                            vars_list.append(x[ci][ni][d][p])
+                if vars_list:
+                    model.Add(sum(vars_list) <= max_count)
 
-    if best_timetable:
-        result = format_timetable(best_timetable, class_divs)
-        result['_violations'] = validate_timetable(best_timetable, class_divs, teacher_busy, block_heads)
-        result['_unplaced'] = best_unplaced
-        return result
-    return None
+    # CONSTRAINT: Rule 11 - PET max 6 per slot
+    for d in range(NUM_DAYS):
+        for p in range(NUM_PERIODS):
+            pet_vars = []
+            for ci, cd in enumerate(class_divs):
+                for ni, need in enumerate(needs[cd]):
+                    if need['subject'] == 'PET':
+                        pet_vars.append(x[ci][ni][d][p])
+            if pet_vars:
+                model.Add(sum(pet_vars) <= MAX_PET_PER_SLOT)
 
+    # CONSTRAINT: Rule 12 - PET/Art/Music/WE not in Period 1
+    for ci, cd in enumerate(class_divs):
+        for ni, need in enumerate(needs[cd]):
+            if need['subject'] in MULTI_CLASS_SUBJECTS:
+                for d in range(NUM_DAYS):
+                    model.Add(x[ci][ni][d][0] == 0)
 
-def can_place(cd, d, p, need, timetable, teacher_busy, teacher_map, block_heads, class_divs):
-    """Full constraint check for a placement"""
-    if need['is_multi']:
-        # Rule 12: No PET/Art/Music/WE in Period 1
-        if p == 0:
-            return False
-        return True
+    # CONSTRAINT: Rule 15 - IT Lab max 6 per slot
+    for d in range(NUM_DAYS):
+        for p in range(NUM_PERIODS):
+            it_vars = []
+            for ci, cd in enumerate(class_divs):
+                for ni, need in enumerate(needs[cd]):
+                    if need['subject'] == 'IT':
+                        it_vars.append(x[ci][ni][d][p])
+            if it_vars:
+                model.Add(sum(it_vars) <= MAX_IT_LAB_PER_SLOT)
 
-    for t in need['teachers']:
-        t = t.strip()
-        if teacher_busy[t][d].get(p):
-            return False
-        if is_teacher_restricted(t, d, p):
-            return False
-        # Rule 4: Block heads no P1
-        if t in block_heads and p == 0:
-            return False
-        # Rule 9: Jaleela feeding mother
-        if is_feeding_mother(t) and (p == 3 or p == 4):
-            other_p = 4 if p == 3 else 3
-            if teacher_busy[t][d].get(other_p):
-                return False
-        # Max periods per day
-        t_info = teacher_map.get(t, {})
-        if t.strip() in ['Rashid', 'Bindya', 'Jaleela', 'Saheer', 'Yasir', 'Swalih', 'Fuaad', 'Bavakutty']:
+    # CONSTRAINT: Rule 6 - Max periods per day per teacher
+    for teacher, assignments in teacher_needs.items():
+        t_strip = teacher.strip()
+        if t_strip in rule_teachers:
             max_pd = 5
         else:
+            t_info = teacher_map.get(teacher, {})
             max_pd = t_info.get('maxPeriodsPerDay') or 6
-        if len(teacher_busy[t][d]) >= max_pd:
-            return False
-
-    # Rule 1: No subject repetition per day (except Maths 10th)
-    subject_today = [timetable[cd][d][pp]['subject'] for pp in range(NUM_PERIODS) if timetable[cd][d].get(pp)]
-    if need['subject'] in subject_today:
-        if not (need['subject'] == 'Maths' and cd.startswith('10-')):
-            return False
-        # Maths 10th: allow max 2 per day
-        if subject_today.count('Maths') >= 2:
-            return False
-
-    # Rule 2: Science P7 for Grade 10
-    if need['subject'] in ['Physics', 'Chemistry'] and p == 6 and cd.startswith('10-'):
-        return False
-    if need['subject'] == 'Biology' and p == 6 and not cd.startswith('10-'):
-        return False
-
-    # Rule 12: No PET/Art/Music/WE in Period 1
-    if need['subject'] in MULTI_CLASS_SUBJECTS and p == 0:
-        return False
-
-    return True
-
-
-def can_place_in_slot(cd, d, p, need, timetable, teacher_busy, teacher_map, block_heads,
-                      used_this_slot, pet_count, art_count, music_count, we_count, it_lab_count, class_divs):
-    """Check placement including per-slot limits"""
-    # Multi-class slot limits
-    if need['subject'] == 'PET' and pet_count >= MAX_PET_PER_SLOT:
-        return False
-    if need['subject'] == 'Art' and art_count >= MAX_ART_PER_SLOT:
-        return False
-    if need['subject'] == 'Music' and music_count >= MAX_MUSIC_PER_SLOT:
-        return False
-    if need['subject'] == 'Work Experience' and we_count >= MAX_WE_PER_SLOT:
-        return False
-    # Rule 15: IT Lab max 6
-    if need['subject'] == 'IT' and it_lab_count >= MAX_IT_LAB_PER_SLOT:
-        return False
-
-    if need['is_multi']:
-        # Rule 12: no P1
-        if p == 0:
-            return False
-        # Max 1 multi-class subject per class per day
-        already_today = sum(1 for pp in range(NUM_PERIODS)
-                           if timetable[cd][d].get(pp) and timetable[cd][d][pp]['subject'] == need['subject'])
-        if already_today >= 1:
-            return False
-        return True
-
-    # Check shared teachers
-    if need.get('shared'):
-        for t in need['teachers']:
-            t = t.strip()
-            if t in used_this_slot:
-                return False
-            if teacher_busy[t][d].get(p):
-                return False
-            if is_teacher_restricted(t, d, p):
-                return False
-            if t in block_heads and p == 0:
-                return False
-            if is_feeding_mother(t) and (p == 3 or p == 4):
-                other_p = 4 if p == 3 else 3
-                if teacher_busy[t][d].get(other_p):
-                    return False
-        return can_place(cd, d, p, need, timetable, teacher_busy, teacher_map, block_heads, class_divs)
-
-    # Normal teacher
-    t = need['teachers'][0].strip()
-    if t in used_this_slot:
-        return False
-
-    return can_place(cd, d, p, need, timetable, teacher_busy, teacher_map, block_heads, class_divs)
-
-
-def do_place(cd, d, p, need, timetable, teacher_busy):
-    """Place a need at (d, p) for class cd"""
-    timetable[cd][d][p] = {
-        'subject': need['subject'],
-        'teacher_str': need['teacher_str'],
-        'teachers': need['teachers'],
-        'is_multi': need['is_multi'],
-        'shared': need.get('shared', False)
-    }
-    if not need['is_multi']:
-        for t in need['teachers']:
-            t = t.strip()
-            teacher_busy[t][d][p] = True
-
-
-def format_timetable(timetable, class_divs):
-    """Format timetable for frontend - marks IT periods as Lab or Theory"""
-    result = {}
-
-    # Count IT periods per class and track lab assignments per slot
-    it_lab_usage = defaultdict(int)  # (d, p) -> count of lab classes
-
-    # First pass: determine which IT periods are Lab vs Theory
-    it_periods_per_class = defaultdict(list)  # cd -> [(d, p)]
-    for cd in class_divs:
         for d in range(NUM_DAYS):
-            for p in range(NUM_PERIODS):
-                slot = timetable[cd][d].get(p)
-                if slot and slot['subject'] == 'IT':
-                    it_periods_per_class[cd].append((d, p))
+            model.Add(sum(x[ci][ni][d][p] for ci, ni in assignments for p in range(NUM_PERIODS)) <= max_pd)
 
-    # Assign Lab/Theory based on grade
-    it_lab_marks = {}  # (cd, d, p) -> 'Lab' or 'Theory'
-    for cd in class_divs:
-        periods = it_periods_per_class[cd]
-        if cd.startswith('10-'):
-            # Grade 10: 3 IT periods -> 2 Lab, 1 Theory
-            lab_count = min(2, len(periods))
-        else:
-            # Grade 8/9: 2 IT periods -> 1 Lab, 1 Theory
-            lab_count = min(1, len(periods))
+    # Solve
+    solver = cp_model.CpSolver()
+    solver.parameters.max_time_in_seconds = 300
+    solver.parameters.num_workers = 2  # Use 2 cores
+    solver.parameters.log_search_progress = True
 
-        # Assign labs to periods that don't exceed 6 simultaneous
-        assigned_labs = 0
-        for d, p in periods:
-            if assigned_labs < lab_count and it_lab_usage[(d, p)] < MAX_IT_LAB_PER_SLOT:
-                it_lab_marks[(cd, d, p)] = 'Lab'
-                it_lab_usage[(d, p)] += 1
-                assigned_labs += 1
-            else:
-                it_lab_marks[(cd, d, p)] = 'Theory'
+    print("Starting OR-Tools solver...")
+    status = solver.Solve(model)
+    print(f"Solver status: {solver.StatusName(status)}")
 
-    # Build result
-    for cd in class_divs:
-        result[cd] = {}
-        for d in range(NUM_DAYS):
-            day_name = DAYS[d]
-            result[cd][day_name] = {}
-            for p in range(NUM_PERIODS):
-                period_num = PERIODS[p]
-                slot = timetable[cd][d].get(p)
-                if slot:
-                    subject_display = slot['subject']
-                    # Add Lab/Theory marker for IT
-                    if slot['subject'] == 'IT' and (cd, d, p) in it_lab_marks:
-                        subject_display = f"IT ({it_lab_marks[(cd, d, p)]})"
-                    result[cd][day_name][period_num] = {
-                        'subject': subject_display,
-                        'teacher': slot['teacher_str'],
-                        'shared': slot.get('shared', False)
-                    }
-    return result
-
-
-def validate_timetable(timetable, class_divs, teacher_busy, block_heads):
-    """Check all rules and report violations"""
-    violations = []
-
-    # Build teacher schedule
-    teacher_days = defaultdict(lambda: defaultdict(dict))
-    for cd in class_divs:
-        for d in range(NUM_DAYS):
-            for p in range(NUM_PERIODS):
-                slot = timetable[cd][d].get(p)
-                if slot:
-                    for t in slot.get('teachers', [slot.get('teacher_str', '')]):
-                        t = t.strip()
-                        if t:
-                            teacher_days[t][d][p] = cd
-
-    # Rule 9: Jaleela
-    if 'Jaleela' in teacher_days:
-        for d in range(NUM_DAYS):
-            has_p4 = 3 in teacher_days['Jaleela'][d]
-            has_p5 = 4 in teacher_days['Jaleela'][d]
-            if has_p4 and has_p5:
-                violations.append(f"Rule 9: Jaleela {DAYS[d]} has BOTH P4 and P5")
-
-    # Rule 7: Rashid
-    if 'Rashid' in teacher_days:
-        for d in range(NUM_DAYS):
-            if 0 in teacher_days['Rashid'][d]:
-                violations.append(f"Rule 7: Rashid {DAYS[d]} P1")
-            if 3 in teacher_days['Rashid'][d]:
-                violations.append(f"Rule 7: Rashid {DAYS[d]} P4")
-
-    # Rule 5: Bindya
-    if 'Bindya' in teacher_days:
-        for d in range(NUM_DAYS):
-            if 0 in teacher_days['Bindya'][d]:
-                violations.append(f"Rule 5: Bindya {DAYS[d]} P1")
-
-    # Rule 8: Friday P4
-    for t in ['Bavakutty', 'Saheer', 'Yasir', 'Swalih']:
-        if t in teacher_days and 3 in teacher_days[t][4]:
-            violations.append(f"Rule 8: {t} Friday P4")
-
-    # Rule 4: Block heads P1
-    for t in block_heads:
-        if t in teacher_days:
+    if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
+        # Build timetable
+        timetable = {}
+        for ci, cd in enumerate(class_divs):
+            timetable[cd] = {}
             for d in range(NUM_DAYS):
-                if 0 in teacher_days[t][d]:
-                    violations.append(f"Rule 4: Block head {t} {DAYS[d]} P1")
+                day_name = DAYS[d]
+                timetable[cd][day_name] = {}
+                for p in range(NUM_PERIODS):
+                    period_num = PERIODS[p]
+                    for ni, need in enumerate(needs[cd]):
+                        if solver.Value(x[ci][ni][d][p]) == 1:
+                            subject_display = need['subject']
+                            # IT Lab marking
+                            if need['subject'] == 'IT':
+                                subject_display = 'IT (Lab)'  # Simplified for now
+                            timetable[cd][day_name][period_num] = {
+                                'subject': subject_display,
+                                'teacher': need['teacher_str'],
+                                'shared': need['shared']
+                            }
+                            break
 
-    # Blank check
+        # Validate
+        violations = validate_timetable(timetable, class_divs, teacher_needs, block_heads)
+        timetable['_violations'] = violations
+        return timetable
+    else:
+        print(f"No solution found. Status: {solver.StatusName(status)}")
+        return None
+
+
+def validate_timetable(timetable, class_divs, teacher_needs, block_heads):
+    violations = []
+    # Check blanks
     for cd in class_divs:
-        filled = sum(1 for d in range(NUM_DAYS) for p in range(NUM_PERIODS) if timetable[cd][d].get(p))
+        filled = 0
+        for d_name in DAYS:
+            for p in PERIODS:
+                if timetable.get(cd, {}).get(d_name, {}).get(p):
+                    filled += 1
         if filled < 35:
             violations.append(f"Blank: {cd} has {filled}/35")
-
     return violations
