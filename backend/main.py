@@ -221,14 +221,24 @@ def delete_classes_bulk(db: Session = Depends(get_db), className: str = None, bl
 # ===== Timetable =====
 @app.get("/api/timetable")
 def get_timetable(db: Session = Depends(get_db)):
+    # Try id=1 first (convention for "current")
     tt = db.query(Timetable).filter(Timetable.id == 1).first()
+    if not tt:
+        # Fallback: get the latest entry that looks like a timetable
+        tt = db.query(Timetable).order_by(Timetable.id.desc()).first()
     if not tt:
         return {}
     data = tt.data
+    if not data:
+        return {}
     # Unwrap if stored as {"timetable": {...}, "saved_at": ...}
     if isinstance(data, dict) and "timetable" in data and isinstance(data["timetable"], dict):
         return data["timetable"]
-    return data if data else {}
+    # Check if it has class division keys (like "10-EA") - that means it's raw timetable
+    if isinstance(data, dict):
+        # Remove internal keys
+        return {k: v for k, v in data.items() if not k.startswith('_')}
+    return {}
 
 
 @app.post("/api/timetable")
@@ -372,15 +382,31 @@ def generate_timetable(db: Session = Depends(get_db)):
         db.execute(
             Timetable.__table__.insert().values(data={"timetable": timetable, "saved_at": datetime.utcnow().isoformat()})
         )
-        # Save as current
+        # Save as current (id=1 is the "current" slot)
         current = db.query(Timetable).filter(Timetable.id == 1).first()
         if current:
             current.data = timetable
         else:
-            db.add(Timetable(data=timetable))
+            # Force insert with id=1
+            from sqlalchemy import text
+            db.execute(text("INSERT OR REPLACE INTO timetable (id, data) VALUES (1, :data)"),
+                       {"data": __import__('json').dumps(timetable)})
         db.commit()
     except Exception as e:
         print(f"Save error: {e}")
+        # Fallback: just try a simple save
+        try:
+            db.rollback()
+            current = db.query(Timetable).filter(Timetable.id == 1).first()
+            if current:
+                current.data = timetable
+                db.commit()
+            else:
+                new_tt = Timetable(data=timetable)
+                db.add(new_tt)
+                db.commit()
+        except Exception as e2:
+            print(f"Fallback save error: {e2}")
 
     return {"ok": True, "timetable": timetable}
 
