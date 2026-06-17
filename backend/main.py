@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -6,13 +6,15 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 import os
+import hashlib
+import secrets
 
 from database import engine, get_db, Base
 from models import Teacher, Block, SchoolClass, Timetable
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="KKHMS Alathiyur - Timetable")
+app = FastAPI(title="KHMHS Alathiyur - Timetable")
 
 app.add_middleware(
     CORSMiddleware,
@@ -20,6 +22,45 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ===== Authentication =====
+USERS = {
+    "admin": hashlib.sha256("khmhs2026".encode()).hexdigest(),
+    "staff": hashlib.sha256("timetable123".encode()).hexdigest(),
+}
+active_tokens = {}
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/api/login")
+def login(req: LoginRequest):
+    pw_hash = hashlib.sha256(req.password.encode()).hexdigest()
+    if req.username in USERS and USERS[req.username] == pw_hash:
+        token = secrets.token_hex(32)
+        active_tokens[token] = req.username
+        return {"token": token, "username": req.username}
+    raise HTTPException(401, "Invalid credentials")
+
+
+@app.get("/api/verify")
+def verify(request: Request):
+    auth = request.headers.get("Authorization", "")
+    token = auth.replace("Bearer ", "")
+    if token in active_tokens:
+        return {"ok": True, "username": active_tokens[token]}
+    raise HTTPException(401, "Invalid token")
+
+
+@app.post("/api/logout")
+def logout(request: Request):
+    auth = request.headers.get("Authorization", "")
+    token = auth.replace("Bearer ", "")
+    active_tokens.pop(token, None)
+    return {"ok": True}
 
 
 # ===== Schemas =====
@@ -300,7 +341,12 @@ frontend_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 
 
 @app.get("/")
-def serve_index():
+def serve_login():
+    return FileResponse(os.path.join(frontend_path, "login.html"))
+
+
+@app.get("/app")
+def serve_app():
     return FileResponse(os.path.join(frontend_path, "index.html"))
 
 
