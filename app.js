@@ -344,6 +344,7 @@ function renderClasses() {
                                     <th>Division</th>
                                     <th>Block</th>
                                     <th>Type</th>
+                                    <th>Class Teacher</th>
                                     <th>Subjects</th>
                                     <th>Actions</th>
                                 </tr>
@@ -355,6 +356,7 @@ function renderClasses() {
                                         <td>${c.divisions.map(d => `<span class="chip">${d}</span>`).join('')}</td>
                                         <td><span class="badge badge-primary">${c.block || '-'}</span></td>
                                         <td><span style="font-size:12px;">${c.classType || '-'}</span></td>
+                                        <td><strong style="color:var(--primary);">${c.classTeacher || '-'}</strong></td>
                                         <td>
                                             ${getClassPeriodTotal(c)} periods
                                         </td>
