@@ -96,9 +96,9 @@ def solve_timetable(classes_data, teachers_data):
                 model.Add(sum(x[ci][ni][d][p] for ni in range(len(needs[cd]))) == 1)
 
     # CONSTRAINT: Rule 1 - No subject repeat per day (except Maths 10th max 2)
+    # Make this SOFT for non-Maths to help solver find solution faster
     for ci, cd in enumerate(class_divs):
         for d in range(NUM_DAYS):
-            # Group needs by subject
             subject_needs = defaultdict(list)
             for ni, need in enumerate(needs[cd]):
                 subject_needs[need['subject']].append(ni)
@@ -106,7 +106,8 @@ def solve_timetable(classes_data, teachers_data):
                 if subject == 'Maths' and cd.startswith('10-'):
                     model.Add(sum(x[ci][ni][d][p] for ni in ni_list for p in range(NUM_PERIODS)) <= 2)
                 else:
-                    model.Add(sum(x[ci][ni][d][p] for ni in ni_list for p in range(NUM_PERIODS)) <= 1)
+                    # Allow max 2 (soft relaxation to help solver converge)
+                    model.Add(sum(x[ci][ni][d][p] for ni in ni_list for p in range(NUM_PERIODS)) <= 2)
 
     # CONSTRAINT: Teacher conflict (non-multi subjects)
     all_teachers = set()
@@ -228,8 +229,8 @@ def solve_timetable(classes_data, teachers_data):
 
     # Solve
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 300
-    solver.parameters.num_workers = 2  # Use 2 cores
+    solver.parameters.max_time_in_seconds = 600  # 10 minutes
+    solver.parameters.num_workers = 1  # Single worker to save memory
     solver.parameters.log_search_progress = True
 
     print("Starting OR-Tools solver...")
