@@ -242,9 +242,68 @@ def save_timetable(data: dict, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
+@app.get("/api/debug-solver")
+def debug_solver(db: Session = Depends(get_db)):
+    """Debug endpoint - shows what data the solver would receive"""
+    classes = db.query(SchoolClass).all()
+    teachers = db.query(Teacher).all()
+
+    issues = []
+    class_summaries = []
+
+    for cls in classes:
+        total_periods = 0
+        missing_teachers = []
+        for sub in (cls.subjects or []):
+            periods = sub.get('periodsPerWeek', 0)
+            if periods > 0:
+                total_periods += periods
+                if not sub.get('teacher'):
+                    missing_teachers.append(sub.get('name', '?'))
+
+        class_summaries.append({
+            "name": cls.name,
+            "divisions": cls.divisions,
+            "totalPeriods": total_periods,
+            "subjectCount": len([s for s in (cls.subjects or []) if s.get('periodsPerWeek', 0) > 0]),
+            "missingTeachers": missing_teachers
+        })
+
+        if total_periods == 0:
+            issues.append(f"Class {cls.name} ({cls.divisions}): NO periods assigned")
+        elif total_periods > 35:
+            issues.append(f"Class {cls.name} ({cls.divisions}): {total_periods} periods (exceeds 35)")
+        if missing_teachers:
+            issues.append(f"Class {cls.name}: subjects without teachers: {missing_teachers}")
+
+    # Check teacher workload
+    teacher_workload = {}
+    for cls in classes:
+        for div in (cls.divisions or []):
+            for sub in (cls.subjects or []):
+                if sub.get('teacher') and sub.get('periodsPerWeek', 0) > 0:
+                    t = sub['teacher']
+                    teacher_workload[t] = teacher_workload.get(t, 0) + sub['periodsPerWeek']
+
+    overloaded = {t: w for t, w in teacher_workload.items() if w > 35}
+    if overloaded:
+        for t, w in overloaded.items():
+            issues.append(f"Teacher '{t}': {w} total periods/week (max possible is 35)")
+
+    return {
+        "totalClasses": len(classes),
+        "totalTeachers": len(teachers),
+        "totalDivisions": sum(len(c.divisions or []) for c in classes),
+        "classSummaries": class_summaries,
+        "teacherWorkload": teacher_workload,
+        "issues": issues,
+        "status": "OK - ready to solve" if not issues else f"{len(issues)} issue(s) found"
+    }
+
+
 @app.post("/api/generate-timetable")
 def generate_timetable(db: Session = Depends(get_db)):
-    """Generate timetable using OR-Tools solver"""
+    """Generate timetable using greedy solver"""
     from datetime import datetime
     import traceback
 
@@ -274,16 +333,33 @@ def generate_timetable(db: Session = Depends(get_db)):
         for t in teachers
     ]
 
+    # Validate data before solving
+    if not classes_data:
+        raise HTTPException(400, "No classes found. Please add classes first.")
+    if not teachers_data:
+        raise HTTPException(400, "No teachers found. Please add teachers first.")
+
+    # Check that classes have subjects with teachers assigned
+    empty_classes = [c['name'] for c in classes_data
+                     if not any(s.get('periodsPerWeek', 0) > 0 and s.get('teacher')
+                                for s in c.get('subjects', []))]
+    if empty_classes:
+        raise HTTPException(400, f"Classes with no teacher assignments: {', '.join(set(empty_classes))}. "
+                                 "Please assign teachers to subjects first.")
+
     try:
         from solver import solve_timetable
-        timetable = solve_timetable(classes_data, teachers_data)
+        timetable = solve_timetable(classes_data, teachers_data, max_attempts=80)
+    except (ValueError, RuntimeError) as e:
+        print(f"Solver failed: {str(e)}")
+        raise HTTPException(500, f"Solver failed: {str(e)}")
     except Exception as e:
         error_detail = traceback.format_exc()
         print(f"Solver error: {error_detail}")
         raise HTTPException(500, f"Solver error: {str(e)}")
 
     if timetable is None:
-        raise HTTPException(500, "Solver returned no solution. Constraints may be too tight or timeout reached.")
+        raise HTTPException(500, "Solver returned no solution. Please check subject/teacher assignments.")
 
     # Save to history
     try:

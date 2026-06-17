@@ -1272,12 +1272,19 @@ function generateTimetable() {
     document.getElementById('genProgress').style.width = '20%';
     document.getElementById('genStatus').textContent = 'Sending to solver...';
 
-    // Call backend OR-Tools solver
+    // Call backend solver
     fetch(`${API_BASE}/generate-timetable`, { method: 'POST' })
         .then(res => {
             document.getElementById('genProgress').style.width = '80%';
             document.getElementById('genStatus').textContent = 'Processing result...';
-            if (!res.ok) throw new Error('Solver failed');
+            if (!res.ok) {
+                return res.json().then(errData => {
+                    throw new Error(errData.detail || 'Solver failed with unknown error');
+                }).catch(parseErr => {
+                    if (parseErr.message && parseErr.message !== 'Solver failed with unknown error') throw parseErr;
+                    throw new Error(`Server error (${res.status}). Check server logs.`);
+                });
+            }
             return res.json();
         })
         .then(result => {
@@ -1326,7 +1333,7 @@ function generateTimetable() {
                 <div style="background:#fef2f2;padding:16px;border-radius:var(--radius);border:1px solid var(--danger);">
                     <h4 style="color:var(--danger);margin-bottom:8px;"><i class="fas fa-times-circle"></i> Generation Failed</h4>
                     <p>${err.message || 'The solver could not find a valid timetable.'}</p>
-                    <p style="font-size:12px;color:var(--text-light);margin-top:8px;">Check Render logs for details.</p>
+                    <p style="font-size:12px;color:var(--text-light);margin-top:8px;">Check server logs for more details.</p>
                 </div>
             `;
         });
