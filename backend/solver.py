@@ -175,7 +175,7 @@ def _full_attempt(ctx):
     slot_subject_count = defaultdict(lambda: defaultdict(int))  # (d,p) -> subject -> count
 
     # STEP 1: Place class teacher in Period 1 for every day
-    # This is the MOST IMPORTANT rule
+    # MOST IMPORTANT RULE - but only up to the subject's period count
     for cd in class_divs:
         ct = div_class_teacher.get(cd, '')
         if not ct:
@@ -185,20 +185,25 @@ def _full_attempt(ctx):
         if not ct_needs:
             continue
 
+        # Sort by periods descending - use the subject with most periods first for P1
+        ct_needs_sorted = sorted(ct_needs, key=lambda n: -n['periods'])
+
+        # Track how many P1 slots each need has been given
+        p1_count = defaultdict(int)  # need index -> count used for P1
+
         for d in range(NUM_DAYS):
-            # Pick a subject taught by class teacher that still has periods remaining
             placed = False
-            random.shuffle(ct_needs)
-            for need in ct_needs:
-                already_placed = sum(1 for dd in range(NUM_DAYS) for pp in range(NUM_PERIODS)
-                                     if schedule.get((cd, dd, pp)) == need)
-                if already_placed >= need['periods']:
+            for need in ct_needs_sorted:
+                # Don't exceed this subject's total period allocation
+                already_placed_total = sum(1 for dd in range(NUM_DAYS) for pp in range(NUM_PERIODS)
+                                           if schedule.get((cd, dd, pp)) == need)
+                if already_placed_total >= need['periods']:
                     continue
                 # Check basic validity for P1
                 if need['subject'] in MULTI_CLASS_SUBJECTS:
-                    continue  # Can't place multi-class in P1
+                    continue
                 if 'Rashid' in need['teachers']:
-                    continue  # Rashid can't do P1
+                    continue
                 # Check teacher not double-booked in P1 this day
                 teacher_busy = False
                 for t in need['teachers']:
@@ -217,27 +222,8 @@ def _full_attempt(ctx):
                 placed = True
                 break
 
-            if not placed:
-                # If class teacher has no available subject for P1, try any of their subjects
-                for need in ct_needs:
-                    if need['subject'] in MULTI_CLASS_SUBJECTS:
-                        continue
-                    teacher_busy = False
-                    for t in need['teachers']:
-                        if (d, 0) in teacher_slots.get(t, set()):
-                            teacher_busy = True
-                            break
-                    if teacher_busy:
-                        continue
-                    # Force place even if over period count (repair later)
-                    schedule[(cd, d, 0)] = need
-                    for t in need['teachers']:
-                        if not need['is_multi']:
-                            teacher_slots[t].add((d, 0))
-                    if need['subject'] in SLOT_LIMITS:
-                        slot_subject_count[(d, 0)][need['subject']] += 1
-                    placed = True
-                    break
+            # If no class teacher subject available for this day's P1, leave it empty
+            # (will be filled in Phase 2 with other subjects)
 
     # STEP 2: Place remaining subjects
     # Build assignment list (excluding already-placed P1 slots)
