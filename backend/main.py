@@ -221,8 +221,14 @@ def delete_classes_bulk(db: Session = Depends(get_db), className: str = None, bl
 # ===== Timetable =====
 @app.get("/api/timetable")
 def get_timetable(db: Session = Depends(get_db)):
-    tt = db.query(Timetable).first()
-    return tt.data if tt else {}
+    tt = db.query(Timetable).filter(Timetable.id == 1).first()
+    if not tt:
+        return {}
+    data = tt.data
+    # Unwrap if stored as {"timetable": {...}, "saved_at": ...}
+    if isinstance(data, dict) and "timetable" in data and isinstance(data["timetable"], dict):
+        return data["timetable"]
+    return data if data else {}
 
 
 @app.post("/api/timetable")
