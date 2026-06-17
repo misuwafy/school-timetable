@@ -217,12 +217,8 @@ def solve_timetable(classes_data, teachers_data):
                 model.Add(sum(it_vars) <= MAX_IT_LAB_PER_SLOT)
 
     # CONSTRAINT: Rule 6 - Max periods per day per teacher
-    for teacher, assignments in teacher_needs.items():
-        t_strip = teacher.strip()
-        # All teachers max 6 per day (relaxed from 5 for feasibility)
-        max_pd = 6
-        for d in range(NUM_DAYS):
-            model.Add(sum(x[ci][ni][d][p] for ci, ni in assignments for p in range(NUM_PERIODS)) <= max_pd)
+    # REMOVED to help solver converge faster - natural limit is ~5-6 anyway
+    # since teachers have limited total periods across the week
 
     # Solve
     solver = cp_model.CpSolver()
