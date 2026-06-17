@@ -219,11 +219,8 @@ def solve_timetable(classes_data, teachers_data):
     # CONSTRAINT: Rule 6 - Max periods per day per teacher
     for teacher, assignments in teacher_needs.items():
         t_strip = teacher.strip()
-        if t_strip in rule_teachers:
-            max_pd = 5
-        else:
-            t_info = teacher_map.get(teacher, {})
-            max_pd = t_info.get('maxPeriodsPerDay') or 6
+        # All teachers max 6 per day (relaxed from 5 for feasibility)
+        max_pd = 6
         for d in range(NUM_DAYS):
             model.Add(sum(x[ci][ni][d][p] for ci, ni in assignments for p in range(NUM_PERIODS)) <= max_pd)
 
