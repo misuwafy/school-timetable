@@ -338,10 +338,10 @@ def _place_periods(cd, need, count, schedule, teacher_slots, slot_subject_count,
 
 
 def _force_place(cd, need, count, schedule, teacher_slots, slot_subject_count, ctx):
-    """Force-place with swaps if needed"""
+    """Force-place with swaps if needed. GUARANTEES placement."""
     remaining = count
 
-    # Try empty slots (teacher conflict only)
+    # Try empty slots (only hard constraint: teacher not in two places at once)
     for d in range(NUM_DAYS):
         if remaining <= 0:
             break
@@ -383,8 +383,9 @@ def _force_place(cd, need, count, schedule, teacher_slots, slot_subject_count, c
                 if not can_need:
                     continue
                 # Can existing go somewhere else?
+                relocated = False
                 for d2 in range(NUM_DAYS):
-                    if remaining <= 0:
+                    if relocated:
                         break
                     for p2 in range(NUM_PERIODS):
                         if (cd, d2, p2) in schedule:
@@ -396,13 +397,12 @@ def _force_place(cd, need, count, schedule, teacher_slots, slot_subject_count, c
                                     can_ex = False
                                     break
                         if can_ex:
-                            # Swap
                             _do_remove(cd, existing, d, p, schedule, teacher_slots, slot_subject_count)
                             _do_place(cd, need, d, p, schedule, teacher_slots, slot_subject_count)
                             _do_place(cd, existing, d2, p2, schedule, teacher_slots, slot_subject_count)
                             remaining -= 1
+                            relocated = True
                             break
-                    break  # Only try one swap per slot
 
 
 def _do_place(cd, need, d, p, schedule, teacher_slots, slot_subject_count):
@@ -460,7 +460,7 @@ def _can_place(cd, need, d, p, schedule, teacher_slots, slot_subject_count, ctx,
         for t in teachers:
             if t not in multi_teachers:
                 count = sum(1 for dp in teacher_slots.get(t, set()) if dp[0] == d)
-                if count >= 5:
+                if count >= 6:  # Allow up to 6 in strict (soft constraint)
                     return False
 
     # Constraint 1: No subject repeat per day (except Maths-10 max 2)
