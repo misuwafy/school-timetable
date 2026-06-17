@@ -1903,6 +1903,7 @@ async function showTimetableHistory() {
                     `}
                 </div>
                 <div class="modal-footer">
+                    <button class="btn btn-danger" onclick="clearAllHistory()"><i class="fas fa-trash"></i> Clear All History</button>
                     <button class="btn btn-outline" onclick="closeModal('historyModal')">Close</button>
                 </div>
             </div>
@@ -1911,6 +1912,20 @@ async function showTimetableHistory() {
     } catch (e) {
         hideLoading();
         showToast('Error loading history', 'error');
+    }
+}
+
+async function clearAllHistory() {
+    if (!confirm('Delete ALL timetable history? This cannot be undone.')) return;
+    showLoading('Clearing...');
+    try {
+        await fetch(`${API_BASE}/timetable/history`, { method: 'DELETE' });
+        hideLoading();
+        closeModal('historyModal');
+        showToast('History cleared', 'success');
+    } catch (e) {
+        hideLoading();
+        showToast('Error clearing history', 'error');
     }
 }
 

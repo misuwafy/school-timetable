@@ -309,6 +309,13 @@ def get_timetable_history(db: Session = Depends(get_db)):
     return [{"id": t.id, "saved_at": t.data.get("saved_at", "Unknown") if isinstance(t.data, dict) and "saved_at" in t.data else "Unknown"} for t in all_tt]
 
 
+@app.delete("/api/timetable/history")
+def clear_timetable_history(db: Session = Depends(get_db)):
+    deleted = db.query(Timetable).filter(Timetable.id != 1).delete()
+    db.commit()
+    return {"ok": True, "deleted": deleted}
+
+
 @app.get("/api/timetable/history/{history_id}")
 def get_timetable_version(history_id: int, db: Session = Depends(get_db)):
     tt = db.query(Timetable).filter(Timetable.id == history_id).first()
