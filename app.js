@@ -298,6 +298,7 @@ function renderClasses() {
                 <h2>Classes</h2>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
                     <button class="btn btn-outline" onclick="document.getElementById('excelUpload').click()"><i class="fas fa-file-excel"></i> Upload Excel</button>
+                    <button class="btn btn-outline" onclick="window.open('/api/classes/export-excel')"><i class="fas fa-download"></i> Export Excel</button>
                     <button class="btn btn-primary" onclick="showAddClassModal()"><i class="fas fa-plus"></i> Add Class</button>
                 </div>
                 <input type="file" id="excelUpload" style="display:none" accept=".xlsx,.xls" onchange="handleExcelUpload(event)">

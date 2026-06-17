@@ -336,6 +336,60 @@ def restore_timetable(history_id: int, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
+@app.get("/api/classes/export-excel")
+def export_classes_excel(db: Session = Depends(get_db)):
+    """Export all class data as Excel file"""
+    import io
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill
+    except ImportError:
+        raise HTTPException(500, "openpyxl not installed")
+
+    from fastapi.responses import StreamingResponse
+
+    classes = db.query(SchoolClass).all()
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Classes"
+
+    # Headers
+    headers = ['Class', 'Division', 'Block', 'Type', 'Class Teacher', 'Subject', 'Teacher', 'Periods/Week']
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.font = Font(bold=True)
+
+    row = 2
+    for cls in classes:
+        first_sub = True
+        for sub in cls.subjects or []:
+            if sub.get('periodsPerWeek', 0) <= 0:
+                continue
+            if first_sub:
+                ws.cell(row=row, column=1, value=cls.name)
+                ws.cell(row=row, column=2, value=cls.divisions[0] if cls.divisions else '')
+                ws.cell(row=row, column=3, value=cls.block or '')
+                ws.cell(row=row, column=4, value=cls.classType or '')
+                ws.cell(row=row, column=5, value=cls.classTeacher or '')
+                first_sub = False
+            ws.cell(row=row, column=6, value=sub.get('name', ''))
+            ws.cell(row=row, column=7, value=sub.get('teacher', ''))
+            ws.cell(row=row, column=8, value=sub.get('periodsPerWeek', 0))
+            row += 1
+        row += 1  # blank row between classes
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=classes_export.xlsx"}
+    )
+
+
 # ===== Serve Frontend =====
 frontend_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 
