@@ -327,7 +327,7 @@ def _force_place(cd, need, count, schedule, teacher_slots, slot_subject_count, c
     """Force-place with swaps if needed. GUARANTEES placement."""
     remaining = count
 
-    # Try empty slots (only hard constraint: teacher not in two places at once + Rashid rule)
+    # Try empty slots (only hard constraints: teacher not double-booked + Rashid + max 5/day)
     for d in range(NUM_DAYS):
         if remaining <= 0:
             break
@@ -342,8 +342,24 @@ def _force_place(cd, need, count, schedule, teacher_slots, slot_subject_count, c
                     if (d, p) in teacher_slots.get(t, set()):
                         can = False
                         break
+                    # Max 5 periods/day - NEVER exceed
+                    if can and t not in ctx['multi_teachers']:
+                        day_count = sum(1 for dp in teacher_slots.get(t, set()) if dp[0] == d)
+                        if day_count >= 5:
+                            can = False
+                            break
             # HARD: Rashid never P1 or P4
             if can and 'Rashid' in need['teachers'] and p in [0, 3]:
+                can = False
+            # HARD: Block heads no P1 (unless class teacher of this division)
+            if can and p == 0:
+                ct = ctx['div_class_teacher'].get(cd, '')
+                for t in need['teachers']:
+                    if t in ctx['block_heads'] and t != ct:
+                        can = False
+                        break
+            # HARD: Multi-class subjects not P1
+            if can and need['subject'] in MULTI_CLASS_SUBJECTS and p == 0:
                 can = False
             if can:
                 _do_place(cd, need, d, p, schedule, teacher_slots, slot_subject_count)
@@ -365,13 +381,31 @@ def _force_place(cd, need, count, schedule, teacher_slots, slot_subject_count, c
                 # HARD: Rashid can't go to P1 or P4
                 if 'Rashid' in need['teachers'] and p in [0, 3]:
                     continue
-                # Can need's teacher do (d,p)?
+                # HARD: Multi-class not P1
+                if need['subject'] in MULTI_CLASS_SUBJECTS and p == 0:
+                    continue
+                # HARD: Block heads no P1 (unless class teacher)
+                if p == 0:
+                    ct = ctx['div_class_teacher'].get(cd, '')
+                    skip = False
+                    for t in need['teachers']:
+                        if t in ctx['block_heads'] and t != ct:
+                            skip = True
+                            break
+                    if skip:
+                        continue
+                # Can need's teacher do (d,p)? Check conflict + max 5/day
                 can_need = True
                 if not need['is_multi']:
                     for t in need['teachers']:
                         if (d, p) in teacher_slots.get(t, set()):
                             can_need = False
                             break
+                        if can_need and t not in ctx['multi_teachers']:
+                            day_count = sum(1 for dp in teacher_slots.get(t, set()) if dp[0] == d)
+                            if day_count >= 5:
+                                can_need = False
+                                break
                 if not can_need:
                     continue
                 # Can existing go somewhere else?
@@ -385,12 +419,21 @@ def _force_place(cd, need, count, schedule, teacher_slots, slot_subject_count, c
                         # HARD: Rashid can't go to P1 or P4
                         if 'Rashid' in existing['teachers'] and p2 in [0, 3]:
                             continue
+                        # HARD: Multi-class not P1
+                        if existing['subject'] in MULTI_CLASS_SUBJECTS and p2 == 0:
+                            continue
+                        # Check conflict + max 5/day for existing
                         can_ex = True
                         if not existing['is_multi']:
                             for t in existing['teachers']:
                                 if (d2, p2) in teacher_slots.get(t, set()):
                                     can_ex = False
                                     break
+                                if can_ex and t not in ctx['multi_teachers']:
+                                    day_count = sum(1 for dp in teacher_slots.get(t, set()) if dp[0] == d2)
+                                    if day_count >= 5:
+                                        can_ex = False
+                                        break
                         if can_ex:
                             _do_remove(cd, existing, d, p, schedule, teacher_slots, slot_subject_count)
                             _do_place(cd, need, d, p, schedule, teacher_slots, slot_subject_count)
@@ -450,12 +493,12 @@ def _can_place(cd, need, d, p, schedule, teacher_slots, slot_subject_count, ctx,
             if (d, p) in teacher_slots.get(t, set()):
                 return False
 
-    # Constraint 4: Max 5 periods/day for non-multi teachers
-    if strict and not is_multi:
+    # Constraint 4: Max 5 periods/day for non-multi teachers (STRICT - never exceed)
+    if not is_multi:
         for t in teachers:
             if t not in multi_teachers:
                 count = sum(1 for dp in teacher_slots.get(t, set()) if dp[0] == d)
-                if count >= 6:  # Allow up to 6 in strict (soft constraint)
+                if count >= 5:
                     return False
 
     # Constraint 1: No subject repeat per day (except Maths-10 max 2)
