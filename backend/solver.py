@@ -30,7 +30,7 @@ MULTI_CLASS_SUBJECTS = ['PET', 'Music', 'Art', 'Work Experience']
 SLOT_LIMITS = {'PET': 6, 'Art': 2, 'Music': 2, 'Work Experience': 2, 'IT': 6}
 
 
-def solve_timetable(classes_data, teachers_data, max_attempts=60):
+def solve_timetable(classes_data, teachers_data, max_attempts=100):
     if not classes_data:
         raise ValueError("No classes found.")
     if not teachers_data:
@@ -124,7 +124,7 @@ def solve_timetable(classes_data, teachers_data, max_attempts=60):
     best_free = 999999
 
     for attempt in range(max_attempts):
-        if time.time() - start_time > 55:
+        if time.time() - start_time > 90:  # Allow more time
             break
         result, free_count = _full_attempt(ctx)
         if free_count < best_free:
@@ -473,6 +473,65 @@ def _force_place(cd, need, count, schedule, teacher_slots, slot_subject_count, c
                             remaining -= 1
                             relocated = True
                             break
+
+    # CROSS-CLASS SWAP: if teacher is busy in another class, try to move that
+    if remaining > 0:
+        for d in range(NUM_DAYS):
+            if remaining <= 0:
+                break
+            for p in range(NUM_PERIODS):
+                if remaining <= 0:
+                    break
+                if (cd, d, p) in schedule:
+                    continue
+                # Check which teacher is blocking us
+                blocking_teacher = None
+                if not need['is_multi']:
+                    for t in need['teachers']:
+                        if (d, p) in teacher_slots.get(t, set()):
+                            blocking_teacher = t
+                            break
+                if not blocking_teacher:
+                    continue
+                # Find which other class has this teacher at (d, p)
+                for other_cd in ctx['class_divs']:
+                    if other_cd == cd:
+                        continue
+                    other_entry = schedule.get((other_cd, d, p))
+                    if not other_entry:
+                        continue
+                    if blocking_teacher not in other_entry.get('teachers', []):
+                        continue
+                    # Try to move other_entry to a different slot in other_cd
+                    moved = False
+                    for d2 in range(NUM_DAYS):
+                        if moved:
+                            break
+                        for p2 in range(NUM_PERIODS):
+                            if (other_cd, d2, p2) in schedule:
+                                continue
+                            # Check teacher not busy + basic rules
+                            can_move = True
+                            if not other_entry['is_multi']:
+                                for t in other_entry['teachers']:
+                                    if (d2, p2) in teacher_slots.get(t, set()):
+                                        can_move = False
+                                        break
+                            if can_move and 'Rashid' in other_entry.get('teachers', []) and p2 in [0, 3]:
+                                can_move = False
+                            if can_move and other_entry['subject'] in MULTI_CLASS_SUBJECTS and p2 == 0:
+                                can_move = False
+                            if can_move:
+                                # Move other class's entry
+                                _do_remove(other_cd, other_entry, d, p, schedule, teacher_slots, slot_subject_count)
+                                _do_place(other_cd, other_entry, d2, p2, schedule, teacher_slots, slot_subject_count)
+                                # Now place our need
+                                _do_place(cd, need, d, p, schedule, teacher_slots, slot_subject_count)
+                                remaining -= 1
+                                moved = True
+                                break
+                    if moved:
+                        break
 
 
 def _do_place(cd, need, d, p, schedule, teacher_slots, slot_subject_count):
