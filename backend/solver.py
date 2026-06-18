@@ -325,6 +325,26 @@ def _full_attempt(ctx):
                         _do_place(cd, need, d, p, schedule, teacher_slots, slot_subject_count)
                         remaining -= 1
 
+    # LAST RESORT: If still blanks, place ignoring ALL constraints (even teacher conflict)
+    for cd in class_divs:
+        for need in div_needs[cd]:
+            placed_count = sum(1 for d in range(NUM_DAYS) for p in range(NUM_PERIODS)
+                               if schedule.get((cd, d, p)) == need)
+            remaining = need['periods'] - placed_count
+            if remaining <= 0:
+                continue
+            for d in range(NUM_DAYS):
+                if remaining <= 0:
+                    break
+                for p in range(NUM_PERIODS):
+                    if remaining <= 0:
+                        break
+                    if (cd, d, p) in schedule:
+                        continue
+                    # Force place - no constraints checked
+                    schedule[(cd, d, p)] = need
+                    remaining -= 1
+
     # Count free
     free_count = 0
     for cd in class_divs:
