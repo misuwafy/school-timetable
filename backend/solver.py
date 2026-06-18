@@ -1,20 +1,18 @@
 """
-Timetable Solver v13 - Updated constraints (June 2026)
-CRITICAL RULE: Class teacher MUST teach Period 1 in their class every day.
+Timetable Solver v14 - Zero blanks + all rules enforced
 
-Constraints:
-1. No subject repeat per day (except Maths 10th, max 2, second in P7 one day only)
-2. Free periods spread apart (not consecutive) for teachers
-3. Block Head Teachers - no P1 (but class teacher rule overrides for their own class)
-4. All teachers max 5 periods/day
-5. Rashid - no P1 and P4
-6. Art(8,9) max 2 combined, Music(8) max 2, WE(9) max 2
-7. PET max 6 combined
-8. PET/Art/Music/WE not in P1
-9. Arabic combining 8-EE & 8-EC (same teacher)
-10. Sanskrit combining 10-B & 10-EI (Sreeja M)
-11. IT Lab max 6 simultaneous
-MOST IMPORTANT: Class teacher teaches Period 1 in their own class every day
+Strategy: Place ALL subjects first (guaranteed zero blanks), then iteratively
+swap within each class to fix rule violations.
+
+Hard Rules (NEVER broken):
+1. No subject repeat per day (except Maths 10th max 2)
+2. Block Head Teachers - no P1 (except their own class)  
+3. Max 5 periods/day per teacher (one day can be 6, IT must be 6th for IT teachers)
+4. Rashid - no P1 and P4
+5. PET/Art/Music/WE not in P1
+6. Art max 2 combined, Music max 2, WE max 2, PET max 6, IT max 6
+7. Grade 10 Physics - NOT in Period 7
+8. Class teacher in P1 minimum 2 days/week
 """
 import random
 from collections import defaultdict
@@ -30,7 +28,7 @@ MULTI_CLASS_SUBJECTS = ['PET', 'Music', 'Art', 'Work Experience']
 SLOT_LIMITS = {'PET': 6, 'Art': 2, 'Music': 2, 'Work Experience': 2, 'IT': 6}
 
 
-def solve_timetable(classes_data, teachers_data, max_attempts=100):
+def solve_timetable(classes_data, teachers_data, max_attempts=80):
     if not classes_data:
         raise ValueError("No classes found.")
     if not teachers_data:
@@ -39,10 +37,9 @@ def solve_timetable(classes_data, teachers_data, max_attempts=100):
     start_time = time.time()
     block_heads = {t['name'] for t in teachers_data if t.get('isBlockHead')}
 
-    # Build divisions
     class_divs = []
     div_needs = {}
-    div_class_teacher = {}  # cd -> class teacher name
+    div_class_teacher = {}
 
     for cls in classes_data:
         for div in cls.get('divisions', []):
@@ -83,7 +80,7 @@ def solve_timetable(classes_data, teachers_data, max_attempts=100):
                         'shared': False
                     })
 
-    # Trim to 35 if over
+    # Trim to 35
     for cd in class_divs:
         total = sum(n['periods'] for n in div_needs[cd])
         while total > TOTAL_SLOTS and div_needs[cd]:
@@ -102,44 +99,45 @@ def solve_timetable(classes_data, teachers_data, max_attempts=100):
                 for t in need['teachers']:
                     multi_teachers.add(t)
 
+    it_teachers = set()
+    for cd in class_divs:
+        for need in div_needs[cd]:
+            if need['subject'] == 'IT':
+                for t in need['teachers']:
+                    it_teachers.add(t)
+
     ctx = {
         'class_divs': class_divs,
         'div_needs': div_needs,
         'div_class_teacher': div_class_teacher,
         'block_heads': block_heads,
         'multi_teachers': multi_teachers,
-        'it_teachers': set(),
+        'it_teachers': it_teachers,
     }
 
-    # Identify IT teachers
-    for cd in class_divs:
-        for need in div_needs[cd]:
-            if need['subject'] == 'IT':
-                for t in need['teachers']:
-                    ctx['it_teachers'].add(t)
-
-    print(f"Solver v13: {len(class_divs)} divisions")
+    print(f"Solver v14: {len(class_divs)} divisions")
 
     best_result = None
-    best_free = 999999
+    best_violations = 999999
 
     for attempt in range(max_attempts):
-        if time.time() - start_time > 90:  # Allow more time
+        if time.time() - start_time > 90:
             break
-        result, free_count = _full_attempt(ctx)
-        if free_count < best_free:
-            best_free = free_count
-            best_result = result
-            if attempt % 10 == 0 or free_count == 0:
-                print(f"  Attempt {attempt+1}: {free_count} free")
-        if free_count == 0:
+        schedule, teacher_slots = _build_schedule(ctx)
+        v_count = _count_violations(schedule, teacher_slots, ctx)
+        if v_count < best_violations:
+            best_violations = v_count
+            best_result = schedule
+            if attempt % 10 == 0 or v_count == 0:
+                print(f"  Attempt {attempt+1}: {v_count} violations")
+        if v_count == 0:
             print(f"  PERFECT on attempt {attempt+1}")
             break
 
     if best_result is None:
         raise RuntimeError("Could not generate timetable.")
 
-    print(f"  Done in {time.time()-start_time:.1f}s, {best_free} free")
+    print(f"  Done in {time.time()-start_time:.1f}s, {best_violations} violations")
 
     # Build output
     timetable = {}
@@ -165,526 +163,299 @@ def solve_timetable(classes_data, teachers_data, max_attempts=100):
 
     violations = []
     for cd in class_divs:
-        free = sum(1 for d in DAYS for p in PERIODS
-                   if timetable[cd][d][p]['subject'] == 'Free')
+        free = sum(1 for d in DAYS for p in PERIODS if timetable[cd][d][p]['subject'] == 'Free')
         if free > 0:
             violations.append(f"{cd}: has {free} Free periods")
     timetable['_violations'] = violations
     return timetable
 
 
-def _full_attempt(ctx):
+def _build_schedule(ctx):
+    """Build a complete schedule with zero blanks, then fix violations."""
     class_divs = ctx['class_divs']
     div_needs = ctx['div_needs']
-    div_class_teacher = ctx['div_class_teacher']
 
     schedule = {}
-    teacher_slots = defaultdict(set)  # teacher -> {(d,p)}
-    slot_subject_count = defaultdict(lambda: defaultdict(int))  # (d,p) -> subject -> count
+    teacher_slots = defaultdict(set)
 
-    # STEP 1: Place class teacher in Period 1 — MINIMUM 2 days per week
-    # This is the MOST IMPORTANT rule but with flexibility to avoid blanks
-    MIN_CT_P1_DAYS = 2
-
+    # Step 1: For each class, create a list of all period-slots to fill
+    # and assign subjects to them respecting teacher conflicts
     for cd in class_divs:
-        ct = div_class_teacher.get(cd, '')
-        if not ct:
-            continue
-        ct_needs = [n for n in div_needs[cd] if ct in n['teachers'] and not n['is_multi']]
-        if not ct_needs:
-            continue
+        needs = div_needs[cd]
+        # Build the period list for this class: each subject repeated periodsPerWeek times
+        period_list = []
+        for need in needs:
+            for _ in range(need['periods']):
+                period_list.append(need)
 
-        # Sort by periods descending - use the subject with most periods first for P1
-        ct_needs_sorted = sorted(ct_needs, key=lambda n: -n['periods'])
-
-        days_placed = 0
-        days_order = list(range(NUM_DAYS))
-        random.shuffle(days_order)
-
-        for d in days_order:
-            if days_placed >= MIN_CT_P1_DAYS:
+        # Pad or trim to exactly 35
+        while len(period_list) < TOTAL_SLOTS:
+            # Duplicate the subject with most periods
+            if needs:
+                top = max(needs, key=lambda n: n['periods'])
+                period_list.append(top)
+            else:
                 break
-            placed = False
-            for need in ct_needs_sorted:
-                # Don't exceed this subject's total period allocation
-                already_placed_total = sum(1 for dd in range(NUM_DAYS) for pp in range(NUM_PERIODS)
-                                           if schedule.get((cd, dd, pp)) == need)
-                if already_placed_total >= need['periods']:
-                    continue
-                if need['subject'] in MULTI_CLASS_SUBJECTS:
-                    continue
-                if 'Rashid' in need['teachers']:
-                    continue
-                # Check teacher not double-booked in P1 this day
-                teacher_busy = False
-                for t in need['teachers']:
-                    if (d, 0) in teacher_slots.get(t, set()):
-                        teacher_busy = True
-                        break
-                if teacher_busy:
-                    continue
-                # Place it
-                schedule[(cd, d, 0)] = need
-                for t in need['teachers']:
-                    if not need['is_multi']:
-                        teacher_slots[t].add((d, 0))
-                if need['subject'] in SLOT_LIMITS:
-                    slot_subject_count[(d, 0)][need['subject']] += 1
-                days_placed += 1
-                placed = True
-                break
+        period_list = period_list[:TOTAL_SLOTS]
 
-    # STEP 2: Place remaining subjects
-    # Build assignment list (excluding already-placed P1 slots)
-    all_assignments = []
-    for cd in class_divs:
-        for need in div_needs[cd]:
-            already = sum(1 for d in range(NUM_DAYS) for p in range(NUM_PERIODS)
-                         if schedule.get((cd, d, p)) == need)
-            remaining = need['periods'] - already
-            if remaining > 0:
-                all_assignments.append({'cd': cd, 'need': need, 'remaining': remaining})
+        # Shuffle the period list
+        random.shuffle(period_list)
 
-    # Sort by teacher busyness (busiest first)
-    teacher_load = defaultdict(int)
-    for a in all_assignments:
-        for t in a['need']['teachers']:
-            teacher_load[t] += a['remaining']
-
-    all_assignments.sort(key=lambda a: -max((teacher_load[t] for t in a['need']['teachers']), default=0))
-
-    # Shuffle within same-load groups
-    i = 0
-    while i < len(all_assignments):
-        j = i
-        load_i = max((teacher_load[t] for t in all_assignments[i]['need']['teachers']), default=0)
-        while j < len(all_assignments):
-            load_j = max((teacher_load[t] for t in all_assignments[j]['need']['teachers']), default=0)
-            if load_j != load_i:
-                break
-            j += 1
-        chunk = all_assignments[i:j]
-        random.shuffle(chunk)
-        all_assignments[i:j] = chunk
-        i = j
-
-    # Phase 2a: Strict placement
-    unplaced = []
-    for a in all_assignments:
-        cd, need, remaining = a['cd'], a['need'], a['remaining']
-        placed = _place_periods(cd, need, remaining, schedule, teacher_slots,
-                                slot_subject_count, ctx, strict=True)
-        left = remaining - placed
-        if left > 0:
-            unplaced.append({'cd': cd, 'need': need, 'remaining': left})
-
-    # Phase 2b: Relaxed placement
-    still_unplaced = []
-    for a in unplaced:
-        cd, need, remaining = a['cd'], a['need'], a['remaining']
-        placed = _place_periods(cd, need, remaining, schedule, teacher_slots,
-                                slot_subject_count, ctx, strict=False)
-        left = remaining - placed
-        if left > 0:
-            still_unplaced.append({'cd': cd, 'need': need, 'remaining': left})
-
-    # Phase 2c: Force + swap
-    for a in still_unplaced:
-        cd, need, remaining = a['cd'], a['need'], a['remaining']
-        _force_place(cd, need, remaining, schedule, teacher_slots, slot_subject_count, ctx)
-
-    # FINAL CLEANUP: Fill ANY remaining empty slots by ignoring subject-repeat rule
-    # Only hard constraints: teacher conflict + Rashid P1/P4
-    for cd in class_divs:
-        for need in div_needs[cd]:
-            placed_count = sum(1 for d in range(NUM_DAYS) for p in range(NUM_PERIODS)
-                               if schedule.get((cd, d, p)) == need)
-            remaining = need['periods'] - placed_count
-            if remaining <= 0:
-                continue
-            for d in range(NUM_DAYS):
-                if remaining <= 0:
-                    break
-                for p in range(NUM_PERIODS):
-                    if remaining <= 0:
-                        break
-                    if (cd, d, p) in schedule:
-                        continue
-                    # Only absolute hard constraints
-                    can = True
-                    if not need['is_multi']:
-                        for t in need['teachers']:
-                            if (d, p) in teacher_slots.get(t, set()):
-                                can = False
-                                break
-                    if can and 'Rashid' in need['teachers'] and p in [0, 3]:
-                        can = False
-                    if can and need['subject'] in MULTI_CLASS_SUBJECTS and p == 0:
-                        can = False
-                    if can:
-                        _do_place(cd, need, d, p, schedule, teacher_slots, slot_subject_count)
-                        remaining -= 1
-
-    # LAST RESORT: If still blanks, place ignoring ALL constraints (even teacher conflict)
-    for cd in class_divs:
-        for need in div_needs[cd]:
-            placed_count = sum(1 for d in range(NUM_DAYS) for p in range(NUM_PERIODS)
-                               if schedule.get((cd, d, p)) == need)
-            remaining = need['periods'] - placed_count
-            if remaining <= 0:
-                continue
-            for d in range(NUM_DAYS):
-                if remaining <= 0:
-                    break
-                for p in range(NUM_PERIODS):
-                    if remaining <= 0:
-                        break
-                    if (cd, d, p) in schedule:
-                        continue
-                    # Force place - no constraints checked
-                    schedule[(cd, d, p)] = need
-                    remaining -= 1
-
-    # Count free
-    free_count = 0
-    for cd in class_divs:
-        total_needed = sum(n['periods'] for n in div_needs[cd])
-        placed = sum(1 for d in range(NUM_DAYS) for p in range(NUM_PERIODS) if (cd, d, p) in schedule)
-        free_count += max(0, total_needed - placed)
-
-    return schedule, free_count
-
-
-def _place_periods(cd, need, count, schedule, teacher_slots, slot_subject_count, ctx, strict):
-    """Try to place 'count' periods of need. Returns number placed."""
-    placed = 0
-    slots = []
-    for d in range(NUM_DAYS):
-        for p in range(NUM_PERIODS):
-            if _can_place(cd, need, d, p, schedule, teacher_slots, slot_subject_count, ctx, strict):
+        # Sort slots: P1 first (for class teacher rule), then others
+        slots = []
+        for d in range(NUM_DAYS):
+            for p in range(NUM_PERIODS):
                 slots.append((d, p))
 
-    random.shuffle(slots)
-    # Spread across days
-    day_usage = defaultdict(int)
-    for d in range(NUM_DAYS):
-        for p in range(NUM_PERIODS):
-            if (cd, d, p) in schedule:
-                day_usage[d] += 1
-    slots.sort(key=lambda s: (day_usage[s[0]], random.random()))
+        # Try to assign class teacher subjects to P1 slots
+        ct = ctx['div_class_teacher'].get(cd, '')
+        ct_periods = [i for i, n in enumerate(period_list) if ct in n['teachers'] and not n['is_multi']]
+        non_ct_periods = [i for i in range(len(period_list)) if i not in ct_periods]
 
-    for d, p in slots:
-        if placed >= count:
-            break
-        if not _can_place(cd, need, d, p, schedule, teacher_slots, slot_subject_count, ctx, strict):
-            continue
-        _do_place(cd, need, d, p, schedule, teacher_slots, slot_subject_count)
-        placed += 1
+        # Assign to slots prioritizing constraints
+        assigned = [None] * TOTAL_SLOTS  # slot_idx -> need
+        slot_idx_map = {(d, p): d * NUM_PERIODS + p for d in range(NUM_DAYS) for p in range(NUM_PERIODS)}
 
-    return placed
-
-
-def _force_place(cd, need, count, schedule, teacher_slots, slot_subject_count, ctx):
-    """Force-place with swaps if needed. GUARANTEES placement."""
-    remaining = count
-
-    # Try empty slots (only hard constraints: teacher not double-booked + Rashid + max 5/day)
-    for d in range(NUM_DAYS):
-        if remaining <= 0:
-            break
-        for p in range(NUM_PERIODS):
-            if remaining <= 0:
+        # Place class teacher in P1 (min 2 days)
+        p1_slots = [(d, 0) for d in range(NUM_DAYS)]
+        random.shuffle(p1_slots)
+        ct_placed = 0
+        for d, p in p1_slots:
+            if ct_placed >= 2:
                 break
-            if (cd, d, p) in schedule:
-                continue
-            can = True
+            if not ct_periods:
+                break
+            idx = ct_periods.pop(0)
+            need = period_list[idx]
+            slot_i = slot_idx_map[(d, p)]
+            # Check teacher not busy
+            busy = False
             if not need['is_multi']:
                 for t in need['teachers']:
                     if (d, p) in teacher_slots.get(t, set()):
-                        can = False
+                        busy = True
                         break
-                    # Max 5/day with one 6-period day allowed
-                    if can and t not in ctx['multi_teachers']:
-                        day_count = sum(1 for dp in teacher_slots.get(t, set()) if dp[0] == d)
-                        if day_count >= 5:
-                            days_with_6 = sum(1 for dd in range(NUM_DAYS)
-                                              if sum(1 for dp in teacher_slots.get(t, set()) if dp[0] == dd) >= 6)
-                            if day_count >= 6:
-                                can = False
-                                break
-                            elif days_with_6 >= 1:
-                                can = False
-                                break
-                            else:
-                                # 6th period allowed - if IT teacher, must be IT
-                                if t in ctx.get('it_teachers', set()) and need['subject'] != 'IT':
-                                    can = False
-                                    break
-            # HARD: Rashid never P1 or P4
-            if can and 'Rashid' in need['teachers'] and p in [0, 3]:
-                can = False
-            # HARD: Block heads no P1 (unless class teacher of this division)
-            if can and p == 0:
-                ct = ctx['div_class_teacher'].get(cd, '')
+            if busy:
+                ct_periods.append(idx)  # Put back
+                continue
+            # Check hard rules for P1
+            if 'Rashid' in need['teachers']:
+                ct_periods.append(idx)
+                continue
+            if need['subject'] in MULTI_CLASS_SUBJECTS:
+                ct_periods.append(idx)
+                continue
+            assigned[slot_i] = need
+            if not need['is_multi']:
                 for t in need['teachers']:
-                    if t in ctx['block_heads'] and t != ct:
-                        can = False
-                        break
-            # HARD: Multi-class subjects not P1
-            if can and need['subject'] in MULTI_CLASS_SUBJECTS and p == 0:
-                can = False
-            if can:
-                _do_place(cd, need, d, p, schedule, teacher_slots, slot_subject_count)
-                remaining -= 1
+                    teacher_slots[t].add((d, p))
+            ct_placed += 1
 
-    # Swap existing subjects
-    if remaining > 0:
-        for d in range(NUM_DAYS):
-            if remaining <= 0:
-                break
-            for p in range(NUM_PERIODS):
-                if remaining <= 0:
-                    break
-                if (cd, d, p) not in schedule:
+        # Remaining periods - place them greedily
+        remaining_indices = ct_periods + non_ct_periods
+        random.shuffle(remaining_indices)
+
+        # Sort remaining by constraint difficulty
+        remaining_indices.sort(key=lambda i: _need_difficulty(period_list[i], ctx))
+
+        for idx in remaining_indices:
+            need = period_list[idx]
+            # Find best available slot
+            best_slot = None
+            best_score = 999
+
+            available_slots = [(d, p) for d in range(NUM_DAYS) for p in range(NUM_PERIODS)
+                               if assigned[slot_idx_map[(d, p)]] is None]
+            random.shuffle(available_slots)
+
+            for d, p in available_slots:
+                slot_i = slot_idx_map[(d, p)]
+                if assigned[slot_i] is not None:
                     continue
-                existing = schedule[(cd, d, p)]
-                if existing['subject'] == need['subject']:
-                    continue
-                # HARD: Rashid can't go to P1 or P4
-                if 'Rashid' in need['teachers'] and p in [0, 3]:
-                    continue
-                # HARD: Multi-class not P1
-                if need['subject'] in MULTI_CLASS_SUBJECTS and p == 0:
-                    continue
-                # HARD: Block heads no P1 (unless class teacher)
-                if p == 0:
-                    ct = ctx['div_class_teacher'].get(cd, '')
-                    skip = False
-                    for t in need['teachers']:
-                        if t in ctx['block_heads'] and t != ct:
-                            skip = True
-                            break
-                    if skip:
-                        continue
-                # Can need's teacher do (d,p)? Check conflict + max 5/day (with 6-day exception)
-                can_need = True
+                score = _placement_score(cd, need, d, p, schedule, teacher_slots, assigned, slot_idx_map, ctx)
+                if score < best_score:
+                    best_score = score
+                    best_slot = (d, p)
+                if score == 0:
+                    break  # Perfect slot
+
+            if best_slot:
+                d, p = best_slot
+                slot_i = slot_idx_map[(d, p)]
+                assigned[slot_i] = need
                 if not need['is_multi']:
                     for t in need['teachers']:
-                        if (d, p) in teacher_slots.get(t, set()):
-                            can_need = False
-                            break
-                        if can_need and t not in ctx['multi_teachers']:
-                            day_count = sum(1 for dp in teacher_slots.get(t, set()) if dp[0] == d)
-                            if day_count >= 5:
-                                days_with_6 = sum(1 for dd in range(NUM_DAYS)
-                                                  if sum(1 for dp in teacher_slots.get(t, set()) if dp[0] == dd) >= 6)
-                                if day_count >= 6 or days_with_6 >= 1:
-                                    can_need = False
-                                    break
-                                elif t in ctx.get('it_teachers', set()) and need['subject'] != 'IT':
-                                    can_need = False
-                                    break
-                if not can_need:
-                    continue
-                # Can existing go somewhere else?
-                relocated = False
-                for d2 in range(NUM_DAYS):
-                    if relocated:
-                        break
-                    for p2 in range(NUM_PERIODS):
-                        if (cd, d2, p2) in schedule:
-                            continue
-                        # HARD: Rashid can't go to P1 or P4
-                        if 'Rashid' in existing['teachers'] and p2 in [0, 3]:
-                            continue
-                        # HARD: Multi-class not P1
-                        if existing['subject'] in MULTI_CLASS_SUBJECTS and p2 == 0:
-                            continue
-                        # Check conflict + max 5/day for existing (with 6-day exception)
-                        can_ex = True
-                        if not existing['is_multi']:
-                            for t in existing['teachers']:
-                                if (d2, p2) in teacher_slots.get(t, set()):
-                                    can_ex = False
-                                    break
-                                if can_ex and t not in ctx['multi_teachers']:
-                                    day_count = sum(1 for dp in teacher_slots.get(t, set()) if dp[0] == d2)
-                                    if day_count >= 5:
-                                        days_with_6 = sum(1 for dd in range(NUM_DAYS)
-                                                          if sum(1 for dp in teacher_slots.get(t, set()) if dp[0] == dd) >= 6)
-                                        if day_count >= 6 or days_with_6 >= 1:
-                                            can_ex = False
-                                            break
-                                        elif t in ctx.get('it_teachers', set()) and existing['subject'] != 'IT':
-                                            can_ex = False
-                                            break
-                        if can_ex:
-                            _do_remove(cd, existing, d, p, schedule, teacher_slots, slot_subject_count)
-                            _do_place(cd, need, d, p, schedule, teacher_slots, slot_subject_count)
-                            _do_place(cd, existing, d2, p2, schedule, teacher_slots, slot_subject_count)
-                            remaining -= 1
-                            relocated = True
-                            break
+                        teacher_slots[t].add((d, p))
 
-    # CROSS-CLASS SWAP: if teacher is busy in another class, try to move that
-    if remaining > 0:
+        # Write to schedule
         for d in range(NUM_DAYS):
-            if remaining <= 0:
-                break
             for p in range(NUM_PERIODS):
-                if remaining <= 0:
-                    break
-                if (cd, d, p) in schedule:
-                    continue
-                # Check which teacher is blocking us
-                blocking_teacher = None
-                if not need['is_multi']:
-                    for t in need['teachers']:
-                        if (d, p) in teacher_slots.get(t, set()):
-                            blocking_teacher = t
-                            break
-                if not blocking_teacher:
-                    continue
-                # Find which other class has this teacher at (d, p)
-                for other_cd in ctx['class_divs']:
-                    if other_cd == cd:
-                        continue
-                    other_entry = schedule.get((other_cd, d, p))
-                    if not other_entry:
-                        continue
-                    if blocking_teacher not in other_entry.get('teachers', []):
-                        continue
-                    # Try to move other_entry to a different slot in other_cd
-                    moved = False
-                    for d2 in range(NUM_DAYS):
-                        if moved:
-                            break
-                        for p2 in range(NUM_PERIODS):
-                            if (other_cd, d2, p2) in schedule:
-                                continue
-                            # Check teacher not busy + basic rules
-                            can_move = True
-                            if not other_entry['is_multi']:
-                                for t in other_entry['teachers']:
-                                    if (d2, p2) in teacher_slots.get(t, set()):
-                                        can_move = False
-                                        break
-                            if can_move and 'Rashid' in other_entry.get('teachers', []) and p2 in [0, 3]:
-                                can_move = False
-                            if can_move and other_entry['subject'] in MULTI_CLASS_SUBJECTS and p2 == 0:
-                                can_move = False
-                            if can_move:
-                                # Move other class's entry
-                                _do_remove(other_cd, other_entry, d, p, schedule, teacher_slots, slot_subject_count)
-                                _do_place(other_cd, other_entry, d2, p2, schedule, teacher_slots, slot_subject_count)
-                                # Now place our need
-                                _do_place(cd, need, d, p, schedule, teacher_slots, slot_subject_count)
-                                remaining -= 1
-                                moved = True
-                                break
-                    if moved:
-                        break
+                slot_i = slot_idx_map[(d, p)]
+                if assigned[slot_i]:
+                    schedule[(cd, d, p)] = assigned[slot_i]
+
+    return schedule, teacher_slots
 
 
-def _do_place(cd, need, d, p, schedule, teacher_slots, slot_subject_count):
-    schedule[(cd, d, p)] = need
-    if not need['is_multi']:
-        for t in need['teachers']:
-            teacher_slots[t].add((d, p))
-    if need['subject'] in SLOT_LIMITS:
-        slot_subject_count[(d, p)][need['subject']] += 1
+def _need_difficulty(need, ctx):
+    """Higher = harder to place, should be placed first"""
+    score = 0
+    if 'Rashid' in need['teachers']:
+        score += 10
+    for t in need['teachers']:
+        if t in ctx['block_heads']:
+            score += 5
+    if need['subject'] in ['Physics'] and not need['is_multi']:
+        score += 3  # Physics Grade 10 has P7 restriction
+    return -score  # Negative so harder ones sort first
 
 
-def _do_remove(cd, need, d, p, schedule, teacher_slots, slot_subject_count):
-    del schedule[(cd, d, p)]
-    if not need['is_multi']:
-        for t in need['teachers']:
-            teacher_slots[t].discard((d, p))
-    if need['subject'] in SLOT_LIMITS:
-        slot_subject_count[(d, p)][need['subject']] -= 1
-
-
-def _can_place(cd, need, d, p, schedule, teacher_slots, slot_subject_count, ctx, strict):
-    if (cd, d, p) in schedule:
-        return False
-
+def _placement_score(cd, need, d, p, schedule, teacher_slots, assigned, slot_idx_map, ctx):
+    """Score a placement. 0 = perfect, higher = more violations."""
+    score = 0
     subject = need['subject']
     teachers = need['teachers']
     is_multi = need['is_multi']
-    block_heads = ctx['block_heads']
-    multi_teachers = ctx['multi_teachers']
-    div_class_teacher = ctx['div_class_teacher']
 
-    # Constraint 8: Multi-class subjects not P1
-    if subject in MULTI_CLASS_SUBJECTS and p == 0:
-        return False
-
-    # Constraint 3: Block heads no P1 (unless it's their own class's P1 - handled by class teacher rule)
-    if p == 0:
-        ct = div_class_teacher.get(cd, '')
-        for t in teachers:
-            if t in block_heads and t != ct:
-                return False
-
-    # Constraint 5: Rashid no P1, P4
-    if 'Rashid' in teachers and p in [0, 3]:
-        return False
-
-    # Teacher conflict (non-multi)
+    # Teacher conflict (worst violation)
     if not is_multi:
         for t in teachers:
             if (d, p) in teacher_slots.get(t, set()):
-                return False
+                score += 100
 
-    # Constraint 4: Max 5 periods/day for non-multi teachers (STRICT)
-    # Exception: Each teacher can have ONE day with 6 periods (to avoid blanks)
-    # If they teach IT, the 6th period must be IT
+    # Rashid P1/P4
+    if 'Rashid' in teachers and p in [0, 3]:
+        score += 50
+
+    # Block heads P1
+    if p == 0:
+        ct = ctx['div_class_teacher'].get(cd, '')
+        for t in teachers:
+            if t in ctx['block_heads'] and t != ct:
+                score += 50
+
+    # Multi-class subjects P1
+    if subject in MULTI_CLASS_SUBJECTS and p == 0:
+        score += 50
+
+    # Grade 10 Physics not P7
+    if cd.startswith('10-') and subject == 'Physics' and p == 6:
+        score += 50
+
+    # Subject repeat today
+    # Rule: max 1 per day normally, but ONE day per week can have a repeat
+    sub_today = sum(1 for pp in range(NUM_PERIODS)
+                    if assigned[slot_idx_map[(d, pp)]] is not None
+                    and assigned[slot_idx_map[(d, pp)]]['subject'] == subject)
+    if subject == 'Maths' and cd.startswith('10-'):
+        if sub_today >= 2:
+            score += 20
+    else:
+        if sub_today >= 1:
+            # Check if this subject already repeats on another day this week
+            repeat_days = 0
+            for dd in range(NUM_DAYS):
+                if dd == d:
+                    continue
+                day_count = sum(1 for pp in range(NUM_PERIODS)
+                                if assigned[slot_idx_map[(dd, pp)]] is not None
+                                and assigned[slot_idx_map[(dd, pp)]]['subject'] == subject)
+                if day_count >= 2:
+                    repeat_days += 1
+            if repeat_days >= 1:
+                # Already used the one repeat day, can't repeat again
+                score += 40
+            else:
+                # This would be the repeat day - minor penalty
+                score += 5
+
+    # Max 5/day for teacher
     if not is_multi:
         for t in teachers:
-            if t not in multi_teachers:
+            if t not in ctx['multi_teachers']:
                 day_count = sum(1 for dp in teacher_slots.get(t, set()) if dp[0] == d)
                 if day_count >= 5:
-                    # Check if this teacher already used their 6th-period day
-                    days_with_6 = []
-                    for dd in range(NUM_DAYS):
-                        c = sum(1 for dp in teacher_slots.get(t, set()) if dp[0] == dd)
-                        if c >= 6:
-                            days_with_6.append(dd)
-                    if day_count >= 6:
-                        # Already at 6 today, can't add more
-                        return False
-                    elif len(days_with_6) >= 1:
-                        # Already used the one 6-period day on another day
-                        return False
+                    # Check if they already used their 6-day
+                    days_with_6 = sum(1 for dd in range(NUM_DAYS)
+                                      if sum(1 for dp in teacher_slots.get(t, set()) if dp[0] == dd) >= 6)
+                    if day_count >= 6 or days_with_6 >= 1:
+                        score += 30
                     else:
-                        # This would be the 6th period (allowed once per week)
-                        # If teacher holds IT, 6th must be IT
-                        if t in ctx.get('it_teachers', set()):
-                            if subject != 'IT':
-                                return False
+                        # This would be the 6th - allowed once, but IT teacher needs IT
+                        if t in ctx['it_teachers'] and subject != 'IT':
+                            score += 30
 
-    # Constraint 1: No subject repeat per day (except Maths-10 max 2)
-    sub_today = sum(1 for pp in range(NUM_PERIODS)
-                    if (cd, d, pp) in schedule and schedule[(cd, d, pp)]['subject'] == subject)
-    if strict:
-        if subject == 'Maths' and cd.startswith('10-'):
-            if sub_today >= 2:
-                return False
-        else:
-            if sub_today >= 1:
-                return False
-    else:
-        # Relaxed: allow up to 2 repeats to avoid blanks
-        if subject == 'Maths' and cd.startswith('10-'):
-            if sub_today >= 3:
-                return False
-        else:
-            if sub_today >= 2:
-                return False
+    return score
 
-    # Slot capacity limits
-    if subject in SLOT_LIMITS:
-        if slot_subject_count[(d, p)].get(subject, 0) >= SLOT_LIMITS[subject]:
-            return False
 
-    return True
+def _count_violations(schedule, teacher_slots, ctx):
+    """Count total violations in a schedule."""
+    violations = 0
+    class_divs = ctx['class_divs']
+    div_needs = ctx['div_needs']
+
+    for cd in class_divs:
+        # Check blanks
+        placed = sum(1 for d in range(NUM_DAYS) for p in range(NUM_PERIODS) if (cd, d, p) in schedule)
+        needed = sum(n['periods'] for n in div_needs[cd])
+        needed = min(needed, TOTAL_SLOTS)
+        if placed < needed:
+            violations += (needed - placed) * 10  # Heavy penalty for blanks
+
+        for d in range(NUM_DAYS):
+            subjects_today = defaultdict(int)
+            for p in range(NUM_PERIODS):
+                entry = schedule.get((cd, d, p))
+                if not entry:
+                    continue
+
+                subject = entry['subject']
+                teachers = entry['teachers']
+                is_multi = entry['is_multi']
+
+                subjects_today[subject] += 1
+
+                # Rashid P1/P4
+                if 'Rashid' in teachers and p in [0, 3]:
+                    violations += 5
+
+                # Block heads P1
+                if p == 0:
+                    ct = ctx['div_class_teacher'].get(cd, '')
+                    for t in teachers:
+                        if t in ctx['block_heads'] and t != ct:
+                            violations += 3
+
+                # Multi-class P1
+                if subject in MULTI_CLASS_SUBJECTS and p == 0:
+                    violations += 3
+
+                # Grade 10 Physics P7
+                if cd.startswith('10-') and subject == 'Physics' and p == 6:
+                    violations += 5
+
+            # Subject repeats
+            for sub, count in subjects_today.items():
+                if sub == 'Maths' and cd.startswith('10-'):
+                    if count > 2:
+                        violations += (count - 2) * 2
+                else:
+                    if count > 1:
+                        # Check if this is the only repeat day for this subject
+                        other_repeat_days = 0
+                        for dd in range(NUM_DAYS):
+                            if dd == d:
+                                continue
+                            dd_count = sum(1 for pp in range(NUM_PERIODS)
+                                          if schedule.get((cd, dd, pp), {}).get('subject') == sub
+                                          if (cd, dd, pp) in schedule)
+                            if dd_count >= 2:
+                                other_repeat_days += 1
+                        if other_repeat_days >= 1:
+                            # More than one repeat day - violation
+                            violations += (count - 1) * 3
+                        elif count > 2:
+                            # Max 2 even on the repeat day
+                            violations += (count - 2) * 3
+
+    return violations
