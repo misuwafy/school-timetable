@@ -108,7 +108,15 @@ def solve_timetable(classes_data, teachers_data, max_attempts=60):
         'div_class_teacher': div_class_teacher,
         'block_heads': block_heads,
         'multi_teachers': multi_teachers,
+        'it_teachers': set(),
     }
+
+    # Identify IT teachers
+    for cd in class_divs:
+        for need in div_needs[cd]:
+            if need['subject'] == 'IT':
+                for t in need['teachers']:
+                    ctx['it_teachers'].add(t)
 
     print(f"Solver v13: {len(class_divs)} divisions")
 
@@ -342,12 +350,23 @@ def _force_place(cd, need, count, schedule, teacher_slots, slot_subject_count, c
                     if (d, p) in teacher_slots.get(t, set()):
                         can = False
                         break
-                    # Max 5 periods/day - NEVER exceed
+                    # Max 5/day with one 6-period day allowed
                     if can and t not in ctx['multi_teachers']:
                         day_count = sum(1 for dp in teacher_slots.get(t, set()) if dp[0] == d)
                         if day_count >= 5:
-                            can = False
-                            break
+                            days_with_6 = sum(1 for dd in range(NUM_DAYS)
+                                              if sum(1 for dp in teacher_slots.get(t, set()) if dp[0] == dd) >= 6)
+                            if day_count >= 6:
+                                can = False
+                                break
+                            elif days_with_6 >= 1:
+                                can = False
+                                break
+                            else:
+                                # 6th period allowed - if IT teacher, must be IT
+                                if t in ctx.get('it_teachers', set()) and need['subject'] != 'IT':
+                                    can = False
+                                    break
             # HARD: Rashid never P1 or P4
             if can and 'Rashid' in need['teachers'] and p in [0, 3]:
                 can = False
@@ -394,7 +413,7 @@ def _force_place(cd, need, count, schedule, teacher_slots, slot_subject_count, c
                             break
                     if skip:
                         continue
-                # Can need's teacher do (d,p)? Check conflict + max 5/day
+                # Can need's teacher do (d,p)? Check conflict + max 5/day (with 6-day exception)
                 can_need = True
                 if not need['is_multi']:
                     for t in need['teachers']:
@@ -404,8 +423,14 @@ def _force_place(cd, need, count, schedule, teacher_slots, slot_subject_count, c
                         if can_need and t not in ctx['multi_teachers']:
                             day_count = sum(1 for dp in teacher_slots.get(t, set()) if dp[0] == d)
                             if day_count >= 5:
-                                can_need = False
-                                break
+                                days_with_6 = sum(1 for dd in range(NUM_DAYS)
+                                                  if sum(1 for dp in teacher_slots.get(t, set()) if dp[0] == dd) >= 6)
+                                if day_count >= 6 or days_with_6 >= 1:
+                                    can_need = False
+                                    break
+                                elif t in ctx.get('it_teachers', set()) and need['subject'] != 'IT':
+                                    can_need = False
+                                    break
                 if not can_need:
                     continue
                 # Can existing go somewhere else?
@@ -422,7 +447,7 @@ def _force_place(cd, need, count, schedule, teacher_slots, slot_subject_count, c
                         # HARD: Multi-class not P1
                         if existing['subject'] in MULTI_CLASS_SUBJECTS and p2 == 0:
                             continue
-                        # Check conflict + max 5/day for existing
+                        # Check conflict + max 5/day for existing (with 6-day exception)
                         can_ex = True
                         if not existing['is_multi']:
                             for t in existing['teachers']:
@@ -432,8 +457,14 @@ def _force_place(cd, need, count, schedule, teacher_slots, slot_subject_count, c
                                 if can_ex and t not in ctx['multi_teachers']:
                                     day_count = sum(1 for dp in teacher_slots.get(t, set()) if dp[0] == d2)
                                     if day_count >= 5:
-                                        can_ex = False
-                                        break
+                                        days_with_6 = sum(1 for dd in range(NUM_DAYS)
+                                                          if sum(1 for dp in teacher_slots.get(t, set()) if dp[0] == dd) >= 6)
+                                        if day_count >= 6 or days_with_6 >= 1:
+                                            can_ex = False
+                                            break
+                                        elif t in ctx.get('it_teachers', set()) and existing['subject'] != 'IT':
+                                            can_ex = False
+                                            break
                         if can_ex:
                             _do_remove(cd, existing, d, p, schedule, teacher_slots, slot_subject_count)
                             _do_place(cd, need, d, p, schedule, teacher_slots, slot_subject_count)
@@ -493,13 +524,32 @@ def _can_place(cd, need, d, p, schedule, teacher_slots, slot_subject_count, ctx,
             if (d, p) in teacher_slots.get(t, set()):
                 return False
 
-    # Constraint 4: Max 5 periods/day for non-multi teachers (STRICT - never exceed)
+    # Constraint 4: Max 5 periods/day for non-multi teachers (STRICT)
+    # Exception: Each teacher can have ONE day with 6 periods (to avoid blanks)
+    # If they teach IT, the 6th period must be IT
     if not is_multi:
         for t in teachers:
             if t not in multi_teachers:
-                count = sum(1 for dp in teacher_slots.get(t, set()) if dp[0] == d)
-                if count >= 5:
-                    return False
+                day_count = sum(1 for dp in teacher_slots.get(t, set()) if dp[0] == d)
+                if day_count >= 5:
+                    # Check if this teacher already used their 6th-period day
+                    days_with_6 = []
+                    for dd in range(NUM_DAYS):
+                        c = sum(1 for dp in teacher_slots.get(t, set()) if dp[0] == dd)
+                        if c >= 6:
+                            days_with_6.append(dd)
+                    if day_count >= 6:
+                        # Already at 6 today, can't add more
+                        return False
+                    elif len(days_with_6) >= 1:
+                        # Already used the one 6-period day on another day
+                        return False
+                    else:
+                        # This would be the 6th period (allowed once per week)
+                        # If teacher holds IT, 6th must be IT
+                        if t in ctx.get('it_teachers', set()):
+                            if subject != 'IT':
+                                return False
 
     # Constraint 1: No subject repeat per day (except Maths-10 max 2)
     sub_today = sum(1 for pp in range(NUM_PERIODS)
