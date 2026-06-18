@@ -51,11 +51,14 @@ let _cache = { classes: [], teachers: [], blocks: [], timetable: {} };
 
 async function fetchData() {
     try {
+        const userRole = localStorage.getItem('user_role') || 'staff';
+        const timetableEndpoint = userRole === 'admin' ? `${API_BASE}/timetable` : `${API_BASE}/timetable/published`;
+
         const [teachers, blocks, classes, timetable] = await Promise.all([
             fetch(`${API_BASE}/teachers`).then(r => r.json()),
             fetch(`${API_BASE}/blocks`).then(r => r.json()),
             fetch(`${API_BASE}/classes`).then(r => r.json()),
-            fetch(`${API_BASE}/timetable`).then(r => r.json())
+            fetch(timetableEndpoint).then(r => r.json())
         ]);
         _cache = { teachers, blocks, classes, timetable: timetable || {} };
         // Rebuild teacher subjects from class assignments
@@ -1160,12 +1163,14 @@ let currentTimetableTab = 'generate';
 function renderTimetablePage() {
     const data = getData();
     const hasTimeTable = Object.keys(data.timetable).length > 0;
+    const userRole = localStorage.getItem('user_role') || 'staff';
+    const isAdmin = userRole === 'admin';
 
     return `
         <div class="timetable-tabs">
-            <button class="tab-btn ${currentTimetableTab === 'generate' ? 'active' : ''}" onclick="switchTimetableTab('generate')">
+            ${isAdmin ? `<button class="tab-btn ${currentTimetableTab === 'generate' ? 'active' : ''}" onclick="switchTimetableTab('generate')">
                 <i class="fas fa-magic"></i> Generate
-            </button>
+            </button>` : ''}
             <button class="tab-btn ${currentTimetableTab === 'class' ? 'active' : ''}" onclick="switchTimetableTab('class')" ${!hasTimeTable ? 'disabled' : ''}>
                 <i class="fas fa-chalkboard"></i> Class Wise
             </button>
@@ -1191,13 +1196,21 @@ function switchTimetableTab(tab) {
 }
 
 function renderTimetableTabContent() {
+    const userRole = localStorage.getItem('user_role') || 'staff';
+    const isAdmin = userRole === 'admin';
+
+    // Staff can't access generate tab
+    if (!isAdmin && currentTimetableTab === 'generate') {
+        currentTimetableTab = 'class';
+    }
+
     switch (currentTimetableTab) {
         case 'generate': return renderGenerate();
         case 'class': return renderViewClass();
         case 'teacher': return renderViewTeacher();
         case 'block': return renderViewBlock();
         case 'school': return renderViewSchool();
-        default: return renderGenerate();
+        default: return isAdmin ? renderGenerate() : renderViewClass();
     }
 }
 
@@ -1322,6 +1335,9 @@ function generateTimetable() {
                         <button class="btn btn-primary btn-sm" onclick="switchTimetableTab('teacher')">View Teacher Wise</button>
                         <button class="btn btn-primary btn-sm" onclick="switchTimetableTab('block')">View Block Wise</button>
                         <button class="btn btn-primary btn-sm" onclick="switchTimetableTab('school')">View School Wise</button>
+                        <button class="btn btn-success btn-sm" onclick="publishTimetable()" style="margin-left:auto;">
+                            <i class="fas fa-check-double"></i> Publish & Finalize
+                        </button>
                     </div>
                 </div>
             `;
@@ -1339,7 +1355,26 @@ function generateTimetable() {
         });
 }
 
-// ===== TIMETABLE ALGORITHM =====
+// ===== PUBLISH TIMETABLE =====
+function publishTimetable() {
+    if (!confirm('Are you sure you want to publish this timetable?\n\nOnce published, staff users will see this version.')) return;
+
+    fetch(`${API_BASE}/timetable/publish`, {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + localStorage.getItem('auth_token') }
+    })
+    .then(res => {
+        if (!res.ok) return res.json().then(err => { throw new Error(err.detail || 'Publish failed'); });
+        return res.json();
+    })
+    .then(result => {
+        showToast('Timetable published successfully! Staff can now view it.', 'success');
+    })
+    .catch(err => {
+        showToast(err.message || 'Failed to publish', 'error');
+    });
+}
+
 // ===== TIMETABLE VIEWS =====
 // ===== TIMETABLE VIEWS =====
 function renderViewClass() {
@@ -2276,11 +2311,25 @@ function logout() {
         });
     }
     localStorage.removeItem('auth_token');
+    localStorage.removeItem('user_role');
     window.location.href = '/';
 }
 
 // ===== INIT =====
 showLoading('Loading data...');
+
+// Hide admin-only elements for staff
+const _userRole = localStorage.getItem('user_role') || 'staff';
+if (_userRole !== 'admin') {
+    // Hide Classes, Teachers, Blocks nav items for staff
+    document.querySelectorAll('[data-page="classes"], [data-page="teachers"], [data-page="blocks"]').forEach(el => {
+        el.style.display = 'none';
+    });
+    // Default to timetable page for staff
+    currentPage = 'timetable';
+    currentTimetableTab = 'class';
+}
+
 fetchData().then(() => {
     hideLoading();
     renderPage('dashboard');

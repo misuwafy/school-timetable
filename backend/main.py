@@ -25,10 +25,10 @@ app.add_middleware(
 
 # ===== Authentication =====
 USERS = {
-    "admin": hashlib.sha256("khmhs2026".encode()).hexdigest(),
-    "staff": hashlib.sha256("timetable123".encode()).hexdigest(),
+    "admin": {"password": hashlib.sha256("khmhs2026".encode()).hexdigest(), "role": "admin"},
+    "staff": {"password": hashlib.sha256("timetable123".encode()).hexdigest(), "role": "staff"},
 }
-active_tokens = {}
+active_tokens = {}  # token -> {"username": ..., "role": ...}
 
 
 class LoginRequest(BaseModel):
@@ -39,10 +39,11 @@ class LoginRequest(BaseModel):
 @app.post("/api/login")
 def login(req: LoginRequest):
     pw_hash = hashlib.sha256(req.password.encode()).hexdigest()
-    if req.username in USERS and USERS[req.username] == pw_hash:
+    user = USERS.get(req.username)
+    if user and user["password"] == pw_hash:
         token = secrets.token_hex(32)
-        active_tokens[token] = req.username
-        return {"token": token, "username": req.username}
+        active_tokens[token] = {"username": req.username, "role": user["role"]}
+        return {"token": token, "username": req.username, "role": user["role"]}
     raise HTTPException(401, "Invalid credentials")
 
 
@@ -51,7 +52,8 @@ def verify(request: Request):
     auth = request.headers.get("Authorization", "")
     token = auth.replace("Bearer ", "")
     if token in active_tokens:
-        return {"ok": True, "username": active_tokens[token]}
+        info = active_tokens[token]
+        return {"ok": True, "username": info["username"], "role": info["role"]}
     raise HTTPException(401, "Invalid token")
 
 
@@ -61,6 +63,14 @@ def logout(request: Request):
     token = auth.replace("Bearer ", "")
     active_tokens.pop(token, None)
     return {"ok": True}
+
+
+def get_current_role(request: Request):
+    """Helper to get current user's role"""
+    auth = request.headers.get("Authorization", "")
+    token = auth.replace("Bearer ", "")
+    info = active_tokens.get(token)
+    return info["role"] if info else None
 
 
 # ===== Schemas =====
@@ -449,6 +459,50 @@ def restore_timetable(history_id: int, db: Session = Depends(get_db)):
         db.add(Timetable(data=timetable_data))
     db.commit()
     return {"ok": True}
+
+
+@app.post("/api/timetable/publish")
+def publish_timetable(request: Request, db: Session = Depends(get_db)):
+    """Publish current timetable - only admin can do this"""
+    role = get_current_role(request)
+    if role != "admin":
+        raise HTTPException(403, "Only admin can publish timetables")
+
+    # Get current timetable
+    tt = db.query(Timetable).filter(Timetable.id == 1).first()
+    if not tt:
+        # Fallback to latest
+        tt = db.query(Timetable).order_by(Timetable.id.desc()).first()
+    if not tt:
+        raise HTTPException(404, "No timetable to publish")
+
+    data = tt.data
+    if isinstance(data, dict) and "timetable" in data:
+        data = data["timetable"]
+
+    # Save as published (id=2 is reserved for published version)
+    from datetime import datetime
+    published = db.query(Timetable).filter(Timetable.id == 2).first()
+    if published:
+        published.data = {"timetable": data, "published_at": datetime.utcnow().isoformat()}
+    else:
+        from sqlalchemy import text
+        db.execute(text("INSERT INTO timetable (id, data) VALUES (2, :data)"),
+                   {"data": __import__('json').dumps({"timetable": data, "published_at": datetime.utcnow().isoformat()})})
+    db.commit()
+    return {"ok": True, "message": "Timetable published successfully"}
+
+
+@app.get("/api/timetable/published")
+def get_published_timetable(db: Session = Depends(get_db)):
+    """Get the published timetable - accessible by staff"""
+    tt = db.query(Timetable).filter(Timetable.id == 2).first()
+    if not tt:
+        return {}
+    data = tt.data
+    if isinstance(data, dict) and "timetable" in data:
+        return data["timetable"]
+    return data if data else {}
 
 
 @app.get("/api/classes/export-excel")

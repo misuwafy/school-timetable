@@ -125,6 +125,7 @@
             if (res.ok) {
                 const data = await res.json();
                 localStorage.setItem('auth_token', data.token);
+                localStorage.setItem('user_role', data.role);
                 window.location.href = '/app';
             } else {
                 document.getElementById('errorMsg').style.display = 'block';
