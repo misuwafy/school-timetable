@@ -293,6 +293,38 @@ def _full_attempt(ctx):
         cd, need, remaining = a['cd'], a['need'], a['remaining']
         _force_place(cd, need, remaining, schedule, teacher_slots, slot_subject_count, ctx)
 
+    # FINAL CLEANUP: Fill ANY remaining empty slots by ignoring subject-repeat rule
+    # Only hard constraints: teacher conflict + Rashid P1/P4
+    for cd in class_divs:
+        for need in div_needs[cd]:
+            placed_count = sum(1 for d in range(NUM_DAYS) for p in range(NUM_PERIODS)
+                               if schedule.get((cd, d, p)) == need)
+            remaining = need['periods'] - placed_count
+            if remaining <= 0:
+                continue
+            for d in range(NUM_DAYS):
+                if remaining <= 0:
+                    break
+                for p in range(NUM_PERIODS):
+                    if remaining <= 0:
+                        break
+                    if (cd, d, p) in schedule:
+                        continue
+                    # Only absolute hard constraints
+                    can = True
+                    if not need['is_multi']:
+                        for t in need['teachers']:
+                            if (d, p) in teacher_slots.get(t, set()):
+                                can = False
+                                break
+                    if can and 'Rashid' in need['teachers'] and p in [0, 3]:
+                        can = False
+                    if can and need['subject'] in MULTI_CLASS_SUBJECTS and p == 0:
+                        can = False
+                    if can:
+                        _do_place(cd, need, d, p, schedule, teacher_slots, slot_subject_count)
+                        remaining -= 1
+
     # Count free
     free_count = 0
     for cd in class_divs:
