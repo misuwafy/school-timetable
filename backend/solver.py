@@ -182,13 +182,14 @@ def _full_attempt(ctx):
     teacher_slots = defaultdict(set)  # teacher -> {(d,p)}
     slot_subject_count = defaultdict(lambda: defaultdict(int))  # (d,p) -> subject -> count
 
-    # STEP 1: Place class teacher in Period 1 for every day
-    # MOST IMPORTANT RULE - but only up to the subject's period count
+    # STEP 1: Place class teacher in Period 1 — MINIMUM 2 days per week
+    # This is the MOST IMPORTANT rule but with flexibility to avoid blanks
+    MIN_CT_P1_DAYS = 2
+
     for cd in class_divs:
         ct = div_class_teacher.get(cd, '')
         if not ct:
             continue
-        # Find which subject(s) this class teacher teaches in this division
         ct_needs = [n for n in div_needs[cd] if ct in n['teachers'] and not n['is_multi']]
         if not ct_needs:
             continue
@@ -196,10 +197,13 @@ def _full_attempt(ctx):
         # Sort by periods descending - use the subject with most periods first for P1
         ct_needs_sorted = sorted(ct_needs, key=lambda n: -n['periods'])
 
-        # Track how many P1 slots each need has been given
-        p1_count = defaultdict(int)  # need index -> count used for P1
+        days_placed = 0
+        days_order = list(range(NUM_DAYS))
+        random.shuffle(days_order)
 
-        for d in range(NUM_DAYS):
+        for d in days_order:
+            if days_placed >= MIN_CT_P1_DAYS:
+                break
             placed = False
             for need in ct_needs_sorted:
                 # Don't exceed this subject's total period allocation
@@ -207,7 +211,6 @@ def _full_attempt(ctx):
                                            if schedule.get((cd, dd, pp)) == need)
                 if already_placed_total >= need['periods']:
                     continue
-                # Check basic validity for P1
                 if need['subject'] in MULTI_CLASS_SUBJECTS:
                     continue
                 if 'Rashid' in need['teachers']:
@@ -227,11 +230,9 @@ def _full_attempt(ctx):
                         teacher_slots[t].add((d, 0))
                 if need['subject'] in SLOT_LIMITS:
                     slot_subject_count[(d, 0)][need['subject']] += 1
+                days_placed += 1
                 placed = True
                 break
-
-            # If no class teacher subject available for this day's P1, leave it empty
-            # (will be filled in Phase 2 with other subjects)
 
     # STEP 2: Place remaining subjects
     # Build assignment list (excluding already-placed P1 slots)
