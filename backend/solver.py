@@ -338,9 +338,9 @@ def _placement_score(cd, need, d, p, schedule, teacher_slots, assigned, slot_idx
     if subject in MULTI_CLASS_SUBJECTS and p == 0:
         score += 50
 
-    # Grade 10 Physics not P7
-    if cd.startswith('10-') and subject == 'Physics' and p == 6:
-        score += 50
+    # Grade 10 Physics/Chemistry not P7
+    if cd.startswith('10-') and subject in ['Physics', 'Chemistry'] and p == 6:
+        score += 1000  # Absolute hard constraint - never place here
 
     # Subject repeat today
     # Rule: max 1 per day normally, but ONE day per week can have a repeat
@@ -430,9 +430,9 @@ def _count_violations(schedule, teacher_slots, ctx):
                 if subject in MULTI_CLASS_SUBJECTS and p == 0:
                     violations += 3
 
-                # Grade 10 Physics P7
-                if cd.startswith('10-') and subject == 'Physics' and p == 6:
-                    violations += 5
+                # Grade 10 Physics/Chemistry P7
+                if cd.startswith('10-') and subject in ['Physics', 'Chemistry'] and p == 6:
+                    violations += 50
 
             # Subject repeats
             for sub, count in subjects_today.items():
