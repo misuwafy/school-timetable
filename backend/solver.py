@@ -622,8 +622,13 @@ def _can_place(cd, need, d, p, schedule, teacher_slots, slot_subject_count, ctx,
             if sub_today >= 1:
                 return False
     else:
-        if sub_today >= 2:
-            return False
+        # Relaxed: allow up to 2 repeats to avoid blanks
+        if subject == 'Maths' and cd.startswith('10-'):
+            if sub_today >= 3:
+                return False
+        else:
+            if sub_today >= 2:
+                return False
 
     # Slot capacity limits
     if subject in SLOT_LIMITS:
