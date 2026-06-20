@@ -896,6 +896,13 @@ tr:hover {
     font-weight: 600;
 }
 
+.sl-footer-logo {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
 .sl-footer-badge:hover {
     background: rgba(255,255,255,0.1);
     border-color: rgba(255,255,255,0.2);
