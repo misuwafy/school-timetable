@@ -846,74 +846,91 @@ tr:hover {
 }
 
 
-/* ===== SynaptaLogic Branding Badge ===== */
-.sl-branding {
-    margin-top: auto;
-    padding: 16px 12px;
-    border-top: 1px solid rgba(255,255,255,0.08);
+/* ===== SynaptaLogic Branding Footer ===== */
+.sl-footer {
+    position: fixed;
+    bottom: 0;
+    left: var(--sidebar-width);
+    right: 0;
+    background: #1a1f2e;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    z-index: 99;
 }
 
-.sl-badge {
+.sl-footer-inner {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 10px 12px;
-    border-radius: 8px;
-    background: rgba(255,255,255,0.04);
-    text-decoration: none;
-    transition: background 0.2s ease;
+    justify-content: space-between;
+    padding: 10px 24px;
 }
 
-.sl-badge:hover {
-    background: rgba(255,255,255,0.08);
-}
-
-.sl-logo {
-    color: rgba(255,255,255,0.4);
-    flex-shrink: 0;
-}
-
-.sl-badge:hover .sl-logo {
-    color: rgba(255,255,255,0.7);
-}
-
-.sl-text {
+.sl-footer-left {
     display: flex;
-    flex-direction: column;
-    gap: 1px;
+    align-items: center;
+    gap: 16px;
 }
 
-.sl-label {
-    font-size: 9px;
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-    color: rgba(255,255,255,0.35);
-    font-weight: 500;
+.sl-footer-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    color: rgba(255,255,255,0.5);
 }
 
-.sl-name {
+.sl-footer-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 20px;
     font-size: 12px;
+    color: rgba(255,255,255,0.7);
+    text-decoration: none;
+    transition: all 0.2s ease;
+}
+
+.sl-footer-badge strong {
+    color: #fff;
     font-weight: 600;
-    color: rgba(255,255,255,0.6);
-    letter-spacing: -0.2px;
 }
 
-.sl-badge:hover .sl-name {
-    color: rgba(255,255,255,0.85);
+.sl-footer-badge:hover {
+    background: rgba(255,255,255,0.1);
+    border-color: rgba(255,255,255,0.2);
+    color: #fff;
 }
 
-/* Sidebar flex layout to push branding to bottom */
-.sidebar {
-    display: flex;
-    flex-direction: column;
+.sl-footer-badge svg {
+    opacity: 0.5;
 }
 
-.sidebar-nav {
-    flex: 1;
+.sl-footer-badge:hover svg {
+    opacity: 1;
+}
+
+.sl-footer-right {
+    font-size: 11px;
+    color: rgba(255,255,255,0.35);
+}
+
+/* Add bottom padding to content area so footer doesn't overlap */
+.content-area {
+    padding-bottom: 60px;
+}
+
+@media (max-width: 768px) {
+    .sl-footer {
+        left: 0;
+    }
+    .sl-footer-right {
+        display: none;
+    }
 }
 
 @media print {
-    .sl-branding {
+    .sl-footer {
         display: none !important;
     }
 }
