@@ -153,6 +153,7 @@ body {
 
 .content-area {
     padding: 24px;
+    padding-bottom: 60px;
     overflow-x: auto;
 }
 
@@ -704,6 +705,12 @@ tr:hover {
     .top-bar-actions {
         display: none;
     }
+    .sl-footer {
+        left: 0;
+    }
+    .sl-footer-right {
+        display: none;
+    }
 }
 
 @media (max-width: 480px) {
@@ -920,20 +927,6 @@ tr:hover {
 .sl-footer-right {
     font-size: 11px;
     color: rgba(255,255,255,0.35);
-}
-
-/* Add bottom padding to content area so footer doesn't overlap */
-.content-area {
-    padding-bottom: 60px;
-}
-
-@media (max-width: 768px) {
-    .sl-footer {
-        left: 0;
-    }
-    .sl-footer-right {
-        display: none;
-    }
 }
 
 @media print {
