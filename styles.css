@@ -844,3 +844,114 @@ tr:hover {
 @keyframes spin {
     to { transform: rotate(360deg); }
 }
+
+
+/* ===== SynaptaLogic Branding Badge ===== */
+.sl-branding {
+    margin-top: auto;
+    padding: 16px 12px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.sl-badge {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    text-decoration: none;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+.sl-badge:hover {
+    background: rgba(255,255,255,0.12);
+    border-color: rgba(99, 102, 241, 0.6);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+}
+
+.sl-pulse {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 100%;
+    height: 100%;
+    background: radial-gradient(circle, rgba(99,102,241,0.15) 0%, transparent 70%);
+    transform: translate(-50%, -50%) scale(0);
+    border-radius: 50%;
+    animation: sl-pulse-anim 3s ease-in-out infinite;
+}
+
+@keyframes sl-pulse-anim {
+    0%, 100% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+    50% { transform: translate(-50%, -50%) scale(2); opacity: 1; }
+}
+
+.sl-content {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    position: relative;
+    z-index: 1;
+}
+
+.sl-icon {
+    font-size: 16px;
+    filter: drop-shadow(0 0 4px rgba(99,102,241,0.5));
+}
+
+.sl-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.sl-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: rgba(255,255,255,0.5);
+    font-weight: 500;
+}
+
+.sl-name {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: -0.2px;
+}
+
+.sl-synapta {
+    color: #a5b4fc;
+}
+
+.sl-logic {
+    color: #67e8f9;
+}
+
+.sl-badge:hover .sl-synapta {
+    color: #c7d2fe;
+}
+
+.sl-badge:hover .sl-logic {
+    color: #a5f3fc;
+}
+
+/* Sidebar flex layout to push branding to bottom */
+.sidebar {
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar-nav {
+    flex: 1;
+}
+
+@media print {
+    .sl-branding {
+        display: none !important;
+    }
+}
