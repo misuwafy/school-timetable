@@ -242,12 +242,54 @@ def solve_timetable(classes_data, teachers_data, max_attempts=1):
                         if ct in need['teachers'] and not need['is_multi'] and need['subject'] != 'Free']
         if not ct_needs_idx:
             continue
-        # Sum of all class teacher subjects in P1 across all days >= 1
+        # Sum of all class teacher subjects in P1 across all days >= 2
         ct_p1_sum = sum(x[ci][ni][d][0] for ni in ct_needs_idx for d in range(NUM_DAYS))
-        model.Add(ct_p1_sum >= 1)
+        model.Add(ct_p1_sum >= 2)
 
-    # ====== OBJECTIVE: Minimize repeats (soft) ======
-    # Already handled by hard constraints above
+    # ====== CONSTRAINT 9: Arabic combining 8-EE & 8-EC ======
+    # These two classes share the same Arabic teacher for First Language
+    # Their Arabic/First Language periods must be at the same time
+    cd_8ee = '8-EE' if '8-EE' in class_divs else None
+    cd_8ec = '8-EC' if '8-EC' in class_divs else None
+    if cd_8ee and cd_8ec:
+        ci_8ee = class_divs.index(cd_8ee)
+        ci_8ec = class_divs.index(cd_8ec)
+        # Find shared subject needs (First Language with same teacher)
+        for ni_ee, need_ee in enumerate(div_needs[cd_8ee]):
+            if 'First Language' in need_ee['subject'] and need_ee.get('shared'):
+                for ni_ec, need_ec in enumerate(div_needs[cd_8ec]):
+                    if 'First Language' in need_ec['subject'] and need_ec.get('shared'):
+                        # They must be scheduled at the same time
+                        for d in range(NUM_DAYS):
+                            for p in range(NUM_PERIODS):
+                                model.Add(x[ci_8ee][ni_ee][d][p] == x[ci_8ec][ni_ec][d][p])
+                        break
+                break
+
+    # ====== CONSTRAINT 10: Sanskrit combining 10-B & 10-EI (Sreeja M) ======
+    cd_10b = '10-B' if '10-B' in class_divs else None
+    cd_10ei = '10-EI' if '10-EI' in class_divs else None
+    if cd_10b and cd_10ei:
+        ci_10b = class_divs.index(cd_10b)
+        ci_10ei = class_divs.index(cd_10ei)
+        # Find First Language needs taught by Sreeja M
+        for ni_b, need_b in enumerate(div_needs[cd_10b]):
+            if 'Sreeja M' in need_b['teachers'] and 'First Language' in need_b['subject']:
+                for ni_ei, need_ei in enumerate(div_needs[cd_10ei]):
+                    if 'Sreeja M' in need_ei['teachers'] and 'First Language' in need_ei['subject']:
+                        # They must be at the same time
+                        for d in range(NUM_DAYS):
+                            for p in range(NUM_PERIODS):
+                                model.Add(x[ci_10b][ni_b][d][p] == x[ci_10ei][ni_ei][d][p])
+                        break
+                break
+
+    # ====== OBJECTIVE: Minimize repeats and spread free periods ======
+    # Constraint 2: Teacher free periods should be spread apart (soft via objective)
+    # We minimize consecutive free periods for each teacher
+    penalty_vars = []
+    # This is too expensive as a hard constraint for 80+ teachers
+    # Instead we just ensure max 6/day which naturally spreads load
 
     # ====== SOLVE ======
     solver = cp_model.CpSolver()
