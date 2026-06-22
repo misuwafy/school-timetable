@@ -235,18 +235,23 @@ def solve_timetable(classes_data, teachers_data, max_attempts=1):
                     for d in range(NUM_DAYS):
                         model.Add(x[ci][ni][d][6] == 0)
 
-    # ====== CONSTRAINT: Class teacher in P1 minimum 1 day/week ======
-    # (2 days makes some infeasible due to teacher conflicts across divisions)
+    # ====== CONSTRAINT: Class teacher in P1 minimum 2 days/week ======
+    # Class teacher MUST teach their own class in Period 1 at least 2 days per week
+    ct_constraint_count = 0
     for ci, cd in enumerate(class_divs):
         ct = div_class_teacher.get(cd, '')
         if not ct:
             continue
+        # Find needs in THIS class where class teacher is the teacher
         ct_needs_idx = [ni for ni, need in enumerate(div_needs[cd])
                         if ct in need['teachers'] and not need['is_multi'] and need['subject'] != 'Free']
         if not ct_needs_idx:
             continue
+        # Class teacher's subjects in P1 of their own class >= 2 days
         ct_p1_sum = sum(x[ci][ni][d][0] for ni in ct_needs_idx for d in range(NUM_DAYS))
-        model.Add(ct_p1_sum >= 1)
+        model.Add(ct_p1_sum >= 2)
+        ct_constraint_count += 1
+    print(f"  Class teacher P1 constraint added for {ct_constraint_count} divisions")
 
     # ====== CONSTRAINT 9 & 10: Arabic/Sanskrit combining ======
     # These are handled by the shared subject data model already.
