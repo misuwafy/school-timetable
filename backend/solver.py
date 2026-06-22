@@ -190,34 +190,13 @@ def solve_timetable(classes_data, teachers_data, max_attempts=1):
                         model.Add(x[ci][ni][d][0] == 0)
     print(f"  Block heads constraint added for {len(block_heads)} teachers")
 
-    # ====== CONSTRAINT 4: Max periods/day ======
-    # Max 5 per day normally, ONE day per week can have 6
+    # ====== CONSTRAINT 4: Max 5 periods/day for all non-multi teachers ======
     for teacher, assignments in teacher_assignments.items():
         if teacher in multi_teachers:
             continue
-        # Total periods for this teacher
-        total_periods = sum(div_needs[class_divs[ci]][ni]['periods'] for ci, ni in assignments)
-        
         for d in range(NUM_DAYS):
             day_total = sum(x[ci][ni][d][p] for ci, ni in assignments for p in range(NUM_PERIODS))
-            if total_periods <= 25:
-                # If teacher has 25 or fewer periods, they can do max 5 every day
-                model.Add(day_total <= 5)
-            else:
-                # Teacher has more than 25 periods (needs one 6-period day)
-                model.Add(day_total <= 6)
-        
-        # If any day can be 6, ensure at most one day exceeds 5
-        if total_periods > 25:
-            # Use simple approach: sum of all days that have 6 <= 1
-            over5_vars = []
-            for d in range(NUM_DAYS):
-                day_total = sum(x[ci][ni][d][p] for ci, ni in assignments for p in range(NUM_PERIODS))
-                b = model.NewBoolVar(f'over5_{teacher}_{d}')
-                model.Add(day_total <= 5).OnlyEnforceIf(b.Not())
-                model.Add(day_total >= 6).OnlyEnforceIf(b)
-                over5_vars.append(b)
-            model.Add(sum(over5_vars) <= 1)
+            model.Add(day_total <= 5)
 
     # ====== CONSTRAINT 5: Rashid no P1 (p=0) and P4 (p=3) ======
     rashid_assignments = teacher_assignments.get('Rashid', [])
@@ -253,36 +232,31 @@ def solve_timetable(classes_data, teachers_data, max_attempts=1):
                     for d in range(NUM_DAYS):
                         model.Add(x[ci][ni][d][6] == 0)
 
-    # ====== CONSTRAINT: Class teacher in P1 minimum 2 days/week ======
-    # Class teacher MUST teach their own class in Period 1 at least 2 days per week
-    ct_constraint_count = 0
+    # ====== CONSTRAINT: Class teacher in P1 (soft - via objective) ======
+    # We make this an optimization objective instead of hard constraint
+    # to avoid INFEASIBLE when teacher workload makes it impossible
+    ct_p1_vars = []
     for ci, cd in enumerate(class_divs):
         ct = div_class_teacher.get(cd, '')
         if not ct:
             continue
-        # Find needs in THIS class where class teacher is the teacher
         ct_needs_idx = [ni for ni, need in enumerate(div_needs[cd])
                         if ct in need['teachers'] and not need['is_multi'] and need['subject'] != 'Free']
         if not ct_needs_idx:
             continue
-        # Class teacher's subjects in P1 of their own class >= 2 days
-        ct_p1_sum = sum(x[ci][ni][d][0] for ni in ct_needs_idx for d in range(NUM_DAYS))
-        model.Add(ct_p1_sum >= 2)
-        ct_constraint_count += 1
-    print(f"  Class teacher P1 constraint added for {ct_constraint_count} divisions")
+        for ni in ct_needs_idx:
+            for d in range(NUM_DAYS):
+                ct_p1_vars.append(x[ci][ni][d][0])
+
+    # Maximize class teacher P1 allocations
+    if ct_p1_vars:
+        model.Maximize(sum(ct_p1_vars))
 
     # ====== CONSTRAINT 9 & 10: Arabic/Sanskrit combining ======
     # These are handled by the shared subject data model already.
     # The teacher conflict constraint already ensures the shared teacher
     # can only be in one place — the data marks them as 'shared' so they
     # get scheduled without conflict. No additional constraint needed here.
-
-    # ====== OBJECTIVE: Minimize repeats and spread free periods ======
-    # Constraint 2: Teacher free periods should be spread apart (soft via objective)
-    # We minimize consecutive free periods for each teacher
-    penalty_vars = []
-    # This is too expensive as a hard constraint for 80+ teachers
-    # Instead we just ensure max 6/day which naturally spreads load
 
     # ====== SOLVE ======
     solver = cp_model.CpSolver()
