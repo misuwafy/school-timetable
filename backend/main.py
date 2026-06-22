@@ -375,7 +375,7 @@ def generate_timetable(db: Session = Depends(get_db)):
 
     try:
         from solver import solve_timetable
-        timetable = solve_timetable(classes_data, teachers_data, max_attempts=80)
+        timetable = solve_timetable(classes_data, teachers_data)
     except (ValueError, RuntimeError) as e:
         print(f"Solver failed: {str(e)}")
         raise HTTPException(500, f"Solver failed: {str(e)}")
