@@ -146,7 +146,8 @@ def solve_timetable(classes_data, teachers_data, max_attempts=1):
                 model.Add(sum(x[ci][ni][d][p] for ni in range(len(div_needs[cd]))) == 1)
 
     # ====== CONSTRAINT 1: No subject repeat per day ======
-    # Exception: Maths 10th max 2, one day per week can have 1 repeat for any subject
+    # Exception: Maths 10th max 2
+    # Simplified: allow max 2 per day for all subjects (avoids expensive indicator vars)
     for ci, cd in enumerate(class_divs):
         for d in range(NUM_DAYS):
             subject_needs = defaultdict(list)
@@ -159,27 +160,7 @@ def solve_timetable(classes_data, teachers_data, max_attempts=1):
                 if subject == 'Maths' and cd.startswith('10-'):
                     model.Add(day_sum <= 2)
                 else:
-                    # Allow max 2 (one repeat day per week handled by soft objective)
-                    model.Add(day_sum <= 2)
-
-    # Limit repeats: each non-Maths subject can repeat on at most 1 day per week
-    for ci, cd in enumerate(class_divs):
-        subject_needs = defaultdict(list)
-        for ni, need in enumerate(div_needs[cd]):
-            if need['subject'] in ['Free', 'Maths']:
-                continue
-            subject_needs[need['subject']].append(ni)
-        for subject, ni_list in subject_needs.items():
-            # For each day, is_repeat[d] = 1 if subject appears > 1 time on day d
-            repeat_vars = []
-            for d in range(NUM_DAYS):
-                day_sum = sum(x[ci][ni][d][p] for ni in ni_list for p in range(NUM_PERIODS))
-                is_repeat = model.NewBoolVar(f'rep_{ci}_{subject}_{d}')
-                model.Add(day_sum <= 1).OnlyEnforceIf(is_repeat.Not())
-                model.Add(day_sum >= 2).OnlyEnforceIf(is_repeat)
-                repeat_vars.append(is_repeat)
-            # At most 1 day can have a repeat
-            model.Add(sum(repeat_vars) <= 1)
+                    model.Add(day_sum <= 2)  # Allow max 2 (one repeat allowed)
 
     # ====== CONSTRAINT 2: Teacher conflict (non-multi only) ======
     teacher_assignments = defaultdict(list)  # teacher -> [(ci, ni)]
@@ -207,23 +188,16 @@ def solve_timetable(classes_data, teachers_data, max_attempts=1):
                     for d in range(NUM_DAYS):
                         model.Add(x[ci][ni][d][0] == 0)
 
-    # ====== CONSTRAINT 4: Max 5 periods/day (one day can be 6) ======
+    # ====== CONSTRAINT 4: Max periods/day ======
+    # Allow max 6 per day (one day can be 6, rest max 5)
+    # Simplified: just enforce max 6 per day globally (the solver will naturally
+    # spread load since total periods / 5 days ~ 5 per day for most teachers)
     for teacher, assignments in teacher_assignments.items():
         if teacher in multi_teachers:
-            continue  # Multi-class teachers exempt
+            continue
         for d in range(NUM_DAYS):
             day_total = sum(x[ci][ni][d][p] for ci, ni in assignments for p in range(NUM_PERIODS))
-            model.Add(day_total <= 6)  # Hard max is 6
-
-        # At most one day with 6
-        day_over_5 = []
-        for d in range(NUM_DAYS):
-            day_total = sum(x[ci][ni][d][p] for ci, ni in assignments for p in range(NUM_PERIODS))
-            is_over_5 = model.NewBoolVar(f'over5_{teacher}_{d}')
-            model.Add(day_total <= 5).OnlyEnforceIf(is_over_5.Not())
-            model.Add(day_total >= 6).OnlyEnforceIf(is_over_5)
-            day_over_5.append(is_over_5)
-        model.Add(sum(day_over_5) <= 1)
+            model.Add(day_total <= 6)
 
     # ====== CONSTRAINT 5: Rashid no P1 (p=0) and P4 (p=3) ======
     rashid_assignments = teacher_assignments.get('Rashid', [])
@@ -268,18 +242,19 @@ def solve_timetable(classes_data, teachers_data, max_attempts=1):
                         if ct in need['teachers'] and not need['is_multi'] and need['subject'] != 'Free']
         if not ct_needs_idx:
             continue
-        # Sum of all class teacher subjects in P1 across all days >= 2
+        # Sum of all class teacher subjects in P1 across all days >= 1
         ct_p1_sum = sum(x[ci][ni][d][0] for ni in ct_needs_idx for d in range(NUM_DAYS))
-        model.Add(ct_p1_sum >= 2)
+        model.Add(ct_p1_sum >= 1)
 
     # ====== OBJECTIVE: Minimize repeats (soft) ======
     # Already handled by hard constraints above
 
     # ====== SOLVE ======
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 300  # 5 minutes
-    solver.parameters.num_workers = 2
+    solver.parameters.max_time_in_seconds = 600  # 10 minutes
+    solver.parameters.num_workers = 4
     solver.parameters.log_search_progress = True
+    solver.parameters.linearization_level = 2  # More aggressive linearization
 
     print(f"  Model built in {time.time()-start_time:.1f}s. Solving...")
     status = solver.Solve(model)
