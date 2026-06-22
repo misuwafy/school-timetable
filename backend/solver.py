@@ -191,15 +191,33 @@ def solve_timetable(classes_data, teachers_data, max_attempts=1):
     print(f"  Block heads constraint added for {len(block_heads)} teachers")
 
     # ====== CONSTRAINT 4: Max periods/day ======
-    # Allow max 6 per day (one day can be 6, rest max 5)
-    # Simplified: just enforce max 6 per day globally (the solver will naturally
-    # spread load since total periods / 5 days ~ 5 per day for most teachers)
+    # Max 5 per day normally, ONE day per week can have 6
     for teacher, assignments in teacher_assignments.items():
         if teacher in multi_teachers:
             continue
+        # Total periods for this teacher
+        total_periods = sum(div_needs[class_divs[ci]][ni]['periods'] for ci, ni in assignments)
+        
         for d in range(NUM_DAYS):
             day_total = sum(x[ci][ni][d][p] for ci, ni in assignments for p in range(NUM_PERIODS))
-            model.Add(day_total <= 6)
+            if total_periods <= 25:
+                # If teacher has 25 or fewer periods, they can do max 5 every day
+                model.Add(day_total <= 5)
+            else:
+                # Teacher has more than 25 periods (needs one 6-period day)
+                model.Add(day_total <= 6)
+        
+        # If any day can be 6, ensure at most one day exceeds 5
+        if total_periods > 25:
+            # Use simple approach: sum of all days that have 6 <= 1
+            over5_vars = []
+            for d in range(NUM_DAYS):
+                day_total = sum(x[ci][ni][d][p] for ci, ni in assignments for p in range(NUM_PERIODS))
+                b = model.NewBoolVar(f'over5_{teacher}_{d}')
+                model.Add(day_total <= 5).OnlyEnforceIf(b.Not())
+                model.Add(day_total >= 6).OnlyEnforceIf(b)
+                over5_vars.append(b)
+            model.Add(sum(over5_vars) <= 1)
 
     # ====== CONSTRAINT 5: Rashid no P1 (p=0) and P4 (p=3) ======
     rashid_assignments = teacher_assignments.get('Rashid', [])
