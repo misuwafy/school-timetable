@@ -335,11 +335,6 @@ body {
 }
 
 /* ===== Tables ===== */
-.table-container {
-    overflow-x: auto;
-    max-width: 100%;
-}
-
 table {
     width: 100%;
     border-collapse: collapse;
@@ -379,6 +374,52 @@ tr:hover {
     padding: 8px 6px;
     text-align: center;
     white-space: nowrap;
+}
+
+.table-container {
+    overflow-x: auto;
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: var(--primary) var(--border);
+    padding-bottom: 8px;
+    position: relative;
+}
+
+.table-container::-webkit-scrollbar {
+    height: 10px;
+}
+
+.table-container::-webkit-scrollbar-track {
+    background: var(--border);
+    border-radius: 5px;
+}
+
+.table-container::-webkit-scrollbar-thumb {
+    background: var(--primary);
+    border-radius: 5px;
+    min-width: 60px;
+}
+
+.table-container::-webkit-scrollbar-thumb:hover {
+    background: var(--primary-dark);
+}
+
+/* Mobile scroll hint */
+@media (max-width: 768px) {
+    .table-container {
+        margin: 0 -12px;
+        padding: 0 12px 12px;
+    }
+    .table-container::after {
+        content: '← Swipe to see full timetable →';
+        display: block;
+        text-align: center;
+        font-size: 11px;
+        color: var(--text-light);
+        padding: 8px 0 0;
+        opacity: 0.7;
+    }
 }
 
 .timetable-grid th {
