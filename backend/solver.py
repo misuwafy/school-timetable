@@ -190,13 +190,17 @@ def solve_timetable(classes_data, teachers_data, max_attempts=1):
                         model.Add(x[ci][ni][d][0] == 0)
     print(f"  Block heads constraint added for {len(block_heads)} teachers")
 
-    # ====== CONSTRAINT 4: Max 5 periods/day for all non-multi teachers ======
+    # ====== CONSTRAINT 4: Max periods/day for non-multi teachers ======
+    # Teachers with ≤25 total periods: max 5/day
+    # Teachers with >25 total periods: max 6/day (they need it mathematically)
     for teacher, assignments in teacher_assignments.items():
         if teacher in multi_teachers:
             continue
+        total_periods = sum(div_needs[class_divs[ci]][ni]['periods'] for ci, ni in assignments)
+        max_per_day = 5 if total_periods <= 25 else 6
         for d in range(NUM_DAYS):
             day_total = sum(x[ci][ni][d][p] for ci, ni in assignments for p in range(NUM_PERIODS))
-            model.Add(day_total <= 5)
+            model.Add(day_total <= max_per_day)
 
     # ====== CONSTRAINT 5: Rashid no P1 (p=0) and P4 (p=3) ======
     rashid_assignments = teacher_assignments.get('Rashid', [])
