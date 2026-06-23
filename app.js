@@ -1183,6 +1183,9 @@ function renderTimetablePage() {
             <button class="tab-btn ${currentTimetableTab === 'school' ? 'active' : ''}" onclick="switchTimetableTab('school')" ${!hasTimeTable ? 'disabled' : ''}>
                 <i class="fas fa-calendar-alt"></i> School Wise
             </button>
+            ${isAdmin && hasTimeTable ? `<button class="tab-btn" style="margin-left:auto;background:var(--success);color:white;" onclick="publishTimetable()">
+                <i class="fas fa-check-double"></i> Publish & Finalize
+            </button>` : ''}
         </div>
         <div id="timetableTabContent">
             ${renderTimetableTabContent()}

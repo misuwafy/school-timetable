@@ -213,7 +213,7 @@ body {
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow);
     margin-bottom: 24px;
-    overflow: hidden;
+    overflow: visible;
 }
 
 .panel-header {
@@ -231,6 +231,7 @@ body {
 
 .panel-body {
     padding: 24px;
+    overflow: visible;
 }
 
 /* ===== Buttons ===== */
