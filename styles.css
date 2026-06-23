@@ -33,7 +33,6 @@ body {
     background: var(--bg);
     color: var(--text);
     min-height: 100vh;
-    overflow-x: hidden;
 }
 
 /* ===== Layout ===== */
@@ -154,7 +153,7 @@ body {
 .content-area {
     padding: 24px;
     padding-bottom: 60px;
-    overflow-x: auto;
+    overflow-x: visible;
 }
 
 /* ===== Cards ===== */
@@ -365,7 +364,7 @@ tr:hover {
     width: 100%;
     border-collapse: collapse;
     font-size: 13px;
-    min-width: 900px;
+    min-width: 1100px;
 }
 
 .timetable-grid th,
