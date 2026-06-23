@@ -79,6 +79,7 @@ class TeacherSchema(BaseModel):
     maxPeriodsPerDay: Optional[int] = 7
     isBlockHead: Optional[bool] = False
     headOfBlock: Optional[str] = ""
+    unavailable: Optional[list] = None
 
 
 class BlockSchema(BaseModel):
@@ -101,7 +102,8 @@ class ClassSchema(BaseModel):
 def get_teachers(db: Session = Depends(get_db)):
     teachers = db.query(Teacher).order_by(Teacher.name).all()
     return [{"id": t.id, "name": t.name, "maxPeriodsPerDay": t.maxPeriodsPerDay,
-             "isBlockHead": t.isBlockHead, "headOfBlock": t.headOfBlock} for t in teachers]
+             "isBlockHead": t.isBlockHead, "headOfBlock": t.headOfBlock,
+             "unavailable": t.unavailable or []} for t in teachers]
 
 
 @app.post("/api/teachers")
@@ -121,6 +123,17 @@ def update_teacher(tid: int, data: TeacherSchema, db: Session = Depends(get_db))
         raise HTTPException(404, "Not found")
     for k, v in data.model_dump(exclude_unset=True).items():
         setattr(t, k, v)
+    db.commit()
+    return {"ok": True}
+
+
+@app.put("/api/teachers/{tid}/unavailability")
+def update_teacher_unavailability(tid: int, data: dict, db: Session = Depends(get_db)):
+    """Update teacher's unavailable slots"""
+    t = db.query(Teacher).filter(Teacher.id == tid).first()
+    if not t:
+        raise HTTPException(404, "Not found")
+    t.unavailable = data.get("unavailable", [])
     db.commit()
     return {"ok": True}
 
@@ -354,7 +367,8 @@ def generate_timetable(db: Session = Depends(get_db)):
             "name": t.name,
             "maxPeriodsPerDay": t.maxPeriodsPerDay,
             "isBlockHead": t.isBlockHead,
-            "headOfBlock": t.headOfBlock
+            "headOfBlock": t.headOfBlock,
+            "unavailable": t.unavailable or []
         }
         for t in teachers
     ]

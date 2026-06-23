@@ -885,6 +885,7 @@ function renderTeachers() {
                                         <td>${t.isBlockHead ? `<span class="badge badge-warning">${t.headOfBlock}</span>` : '-'}</td>
                                         <td>${t.maxPeriodsPerDay || 6}</td>
                                         <td>
+                                            <button class="btn btn-sm btn-outline" onclick="showAvailabilityModal(${idx})" title="Set Availability"><i class="fas fa-clock"></i></button>
                                             <button class="btn btn-sm btn-outline" onclick="editTeacher(${idx})"><i class="fas fa-edit"></i></button>
                                             <button class="btn btn-sm btn-danger" onclick="deleteTeacher(${idx})"><i class="fas fa-trash"></i></button>
                                         </td>
@@ -993,6 +994,138 @@ function saveTeacher(editIdx) {
 
 function editTeacher(idx) {
     showAddTeacherModal(idx);
+}
+
+function showAvailabilityModal(idx) {
+    const data = getData();
+    const teacher = data.teachers[idx];
+    const unavailable = teacher.unavailable || [];
+    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    const periods = [1, 2, 3, 4, 5, 6, 7];
+
+    // Build a set of unavailable slots for quick lookup
+    const unavailSet = new Set();
+    unavailable.forEach(slot => {
+        if (slot.day === 'all') {
+            days.forEach(d => unavailSet.add(`${d}-${slot.period}`));
+        } else {
+            unavailSet.add(`${slot.day}-${slot.period}`);
+        }
+    });
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.id = 'availModal';
+    modal.innerHTML = `
+        <div class="modal" style="max-width:700px;">
+            <div class="modal-header">
+                <h3><i class="fas fa-clock"></i> Availability — ${teacher.name}</h3>
+                <button class="modal-close" onclick="closeModal('availModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom:12px;color:var(--text-light);font-size:13px;">
+                    Click cells to mark periods as <strong style="color:var(--danger);">Unavailable</strong> (red). 
+                    The solver will NOT assign classes during red slots.
+                </p>
+                <div class="table-container">
+                    <table class="timetable-grid" style="min-width:auto;">
+                        <thead>
+                            <tr>
+                                <th>Day</th>
+                                ${periods.map(p => `<th>P${p}</th>`).join('')}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${days.map(day => `
+                                <tr>
+                                    <td style="font-weight:700;background:var(--primary-dark);color:white;">${day.substring(0,3)}</td>
+                                    ${periods.map(p => {
+                                        const isUnavail = unavailSet.has(`${day}-${p}`);
+                                        return `<td class="avail-cell ${isUnavail ? 'unavail' : 'avail'}" 
+                                            data-day="${day}" data-period="${p}"
+                                            onclick="toggleAvailCell(this)"
+                                            style="cursor:pointer;padding:12px;${isUnavail ? 'background:#fef2f2;color:var(--danger);font-weight:700;' : 'background:#ecfdf5;color:var(--success);'}">
+                                            ${isUnavail ? '✗' : '✓'}
+                                        </td>`;
+                                    }).join('')}
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                <div style="margin-top:12px;display:flex;gap:12px;font-size:12px;">
+                    <span><span style="display:inline-block;width:16px;height:16px;background:#ecfdf5;border:1px solid var(--success);border-radius:3px;vertical-align:middle;"></span> Available</span>
+                    <span><span style="display:inline-block;width:16px;height:16px;background:#fef2f2;border:1px solid var(--danger);border-radius:3px;vertical-align:middle;"></span> Unavailable</span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeModal('availModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="saveAvailability(${idx})"><i class="fas fa-save"></i> Save Availability</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+}
+
+function toggleAvailCell(cell) {
+    if (cell.classList.contains('unavail')) {
+        cell.classList.remove('unavail');
+        cell.classList.add('avail');
+        cell.style.background = '#ecfdf5';
+        cell.style.color = 'var(--success)';
+        cell.textContent = '✓';
+    } else {
+        cell.classList.remove('avail');
+        cell.classList.add('unavail');
+        cell.style.background = '#fef2f2';
+        cell.style.color = 'var(--danger)';
+        cell.style.fontWeight = '700';
+        cell.textContent = '✗';
+    }
+}
+
+async function saveAvailability(idx) {
+    const data = getData();
+    const teacher = data.teachers[idx];
+    const cells = document.querySelectorAll('#availModal .unavail');
+    const unavailable = [];
+
+    cells.forEach(cell => {
+        unavailable.push({
+            day: cell.dataset.day,
+            period: parseInt(cell.dataset.period)
+        });
+    });
+
+    // Check if all days have same period blocked — save as "all"
+    const periodCounts = {};
+    unavailable.forEach(s => {
+        periodCounts[s.period] = (periodCounts[s.period] || 0) + 1;
+    });
+    const optimized = [];
+    const handledPeriods = new Set();
+    for (const [period, count] of Object.entries(periodCounts)) {
+        if (count === 5) {
+            optimized.push({ day: 'all', period: parseInt(period) });
+            handledPeriods.add(parseInt(period));
+        }
+    }
+    unavailable.forEach(s => {
+        if (!handledPeriods.has(s.period)) {
+            optimized.push(s);
+        }
+    });
+
+    await fetch(`${API_BASE}/teachers/${teacher.id}/unavailability`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ unavailable: optimized })
+    });
+
+    await fetchData();
+    closeModal('availModal');
+    showToast(`Availability saved for ${teacher.name}`, 'success');
+    renderPage('teachers');
 }
 
 function deleteTeacher(idx) {

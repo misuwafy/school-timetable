@@ -9,6 +9,7 @@ class Teacher(Base):
     maxPeriodsPerDay = Column(Integer, default=7)
     isBlockHead = Column(Boolean, default=False)
     headOfBlock = Column(String(200), default="")
+    unavailable = Column(JSON, default=[])
 
 
 class Block(Base):

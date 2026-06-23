@@ -202,12 +202,34 @@ def solve_timetable(classes_data, teachers_data, max_attempts=1):
             day_total = sum(x[ci][ni][d][p] for ci, ni in assignments for p in range(NUM_PERIODS))
             model.Add(day_total <= max_per_day)
 
-    # ====== CONSTRAINT 5: Rashid no P1 (p=0) and P4 (p=3) ======
-    rashid_assignments = teacher_assignments.get('Rashid', [])
-    for ci, ni in rashid_assignments:
-        for d in range(NUM_DAYS):
-            model.Add(x[ci][ni][d][0] == 0)
-            model.Add(x[ci][ni][d][3] == 0)
+    # ====== CONSTRAINT 5: Teacher unavailability (from database) ======
+    # Format: unavailable = [{"day": "Monday", "period": 1}, {"day": "all", "period": 4}, ...]
+    # "day": "all" means every day, specific day name means only that day
+    day_map = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3, 'Friday': 4}
+    teacher_unavail = {}
+    for t in teachers_data:
+        if t.get('unavailable'):
+            teacher_unavail[t['name']] = t['unavailable']
+
+    for teacher, slots in teacher_unavail.items():
+        assignments = teacher_assignments.get(teacher, [])
+        if not assignments:
+            continue
+        for slot in slots:
+            period = slot.get('period', 0) - 1  # Convert 1-indexed to 0-indexed
+            if period < 0 or period >= NUM_PERIODS:
+                continue
+            day = slot.get('day', 'all')
+            if day == 'all':
+                # Block this period on all days
+                for ci, ni in assignments:
+                    for d in range(NUM_DAYS):
+                        model.Add(x[ci][ni][d][period] == 0)
+            else:
+                d_idx = day_map.get(day)
+                if d_idx is not None:
+                    for ci, ni in assignments:
+                        model.Add(x[ci][ni][d_idx][period] == 0)
 
     # ====== CONSTRAINT 6/7: PET/Art/Music/WE slot limits ======
     for d in range(NUM_DAYS):
@@ -264,10 +286,10 @@ def solve_timetable(classes_data, teachers_data, max_attempts=1):
 
     # ====== SOLVE ======
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 600  # 10 minutes
-    solver.parameters.num_workers = 4
+    solver.parameters.max_time_in_seconds = 1800  # 30 minutes
+    solver.parameters.num_workers = 0  # 0 = use all available cores
     solver.parameters.log_search_progress = True
-    solver.parameters.linearization_level = 2  # More aggressive linearization
+    solver.parameters.linearization_level = 2
 
     print(f"  Model built in {time.time()-start_time:.1f}s. Solving...")
     status = solver.Solve(model)
