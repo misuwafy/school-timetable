@@ -1184,7 +1184,7 @@ function renderTimetablePage() {
                 <i class="fas fa-calendar-alt"></i> School Wise
             </button>
             ${isAdmin && hasTimeTable ? `<button class="tab-btn" style="margin-left:auto;background:var(--success);color:white;" onclick="publishTimetable()">
-                <i class="fas fa-check-double"></i> Publish & Finalize
+                <i class="fas fa-check-double"></i> Publish
             </button>` : ''}
         </div>
         <div id="timetableTabContent">
